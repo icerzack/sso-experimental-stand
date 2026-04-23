@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SSO experiment run metadata",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["run_id", "started_at", "protocol", "scenario", "concurrency", "repeat_no"],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "protocol": { "type": "string", "enum": ["saml", "oidc"] },
+    "scenario": {
+      "type": "string",
+      "enum": ["cold", "warm_idp", "session_reuse", "logout_relogin"]
+    },
+    "concurrency": { "type": "integer", "minimum": 1 },
+    "repeat_no": { "type": "integer", "minimum": 1 },
+    "seed": { "type": "integer" },
+    "duration_s": { "type": "integer", "minimum": 1 },
+    "warm_up_s": { "type": "integer", "minimum": 0 },
+    "steady_state_s": { "type": "integer", "minimum": 1 },
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "saml_sp_base_url": { "type": "string" },
+        "oidc_rp_base_url": { "type": "string" },
+        "keycloak_base_url": { "type": "string" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "os": { "type": "string" },
+        "kernel": { "type": "string" },
+        "cpu_model": { "type": "string" },
+        "cpu_cores": { "type": "integer", "minimum": 1 },
+        "memory_total_mb": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "git_commit": { "type": "string" },
+        "docker_version": { "type": "string" },
+        "docker_compose_version": { "type": "string" },
+        "k6_version": { "type": "string" },
+        "keycloak_image": { "type": "string" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "k6_summary_path": { "type": "string" },
+        "prometheus_export_dir": { "type": "string" },
+        "docker_stats_path": { "type": "string" }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}
+
+

@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'saml-sp'
+    static_configs:
+      - targets: ['saml-sp:8081']
+        labels:
+          service: 'saml-sp'
+          protocol: 'saml'
+
+  - job_name: 'oidc-rp'
+    static_configs:
+      - targets: ['oidc-rp:8082']
+        labels:
+          service: 'oidc-rp'
+          protocol: 'oidc'
+
+  - job_name: 'keycloak'
+    static_configs:
+      # Keycloak exposes metrics/health on the management interface when enabled.
+      # Default management port is 9000 (container-internal).
+      - targets: ['keycloak:9000']
+        labels:
+          service: 'keycloak'
+          protocol: 'idp'
+

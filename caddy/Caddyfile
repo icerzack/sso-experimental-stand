@@ -1,0 +1,24 @@
+{
+    auto_https off
+}
+
+:80 {
+    @keycloak host keycloak.localhost
+    handle @keycloak {
+        reverse_proxy keycloak:8080
+    }
+
+    @saml_sp host saml-sp.localhost
+    handle @saml_sp {
+        reverse_proxy saml-sp:8081
+    }
+
+    @oidc_rp host oidc-rp.localhost
+    handle @oidc_rp {
+        reverse_proxy oidc-rp:8082
+    }
+
+    handle {
+        respond "Not found" 404
+    }
+}
