@@ -74,6 +74,7 @@
     .ok { color: var(--ok); font-weight: 600; }
     .warn { color: var(--warn); font-weight: 600; }
     .na { color: var(--na); font-weight: 600; }
+    .mixed { color: #9a3412; font-weight: 600; }
     .footer {
       margin-top: 10px;
       color: #667085;
@@ -124,6 +125,7 @@
 
     <section class="card">
       <h2>4. Results (Profile Summary)</h2>
+      <p><strong>Legend:</strong> <span class="mixed">Vulnerable -&gt; Mitigated (hardened)</span> means the attack is successful in the vulnerable variant and mitigated in the hardened variant. <span class="na">N/A</span> means the vector is not applicable to that profile architecture.</p>
       <table>
         <thead>
           <tr>
@@ -134,31 +136,36 @@
           </tr>
         </thead>
         <tbody>
-          <tr><td>A1 Brute Force</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (no password)</td><td class="warn">⚠️ vuln/hard</td></tr>
-          <tr><td>A2 Credential Stuffing</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (no password)</td><td class="warn">⚠️ vuln/hard</td></tr>
-          <tr><td>A3 Phishing (WebAuthn)</td><td class="na">❌ N/A</td><td class="ok">✅ architecture-protected</td><td class="na">❌ N/A</td></tr>
-          <tr><td>B1 Token Replay</td><td class="warn">⚠️ vuln/hard</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (no JWT in this flow)</td></tr>
-          <tr><td>B2 JWT alg:none</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (no JWT)</td><td class="na">❌ N/A (no JWT)</td></tr>
-          <tr><td>B3 Session Hijacking</td><td class="warn">⚠️ vuln/hard</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (not covered by current A6 path)</td></tr>
-          <tr><td>C1 redirect_uri</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (no OAuth)</td><td class="na">❌ N/A (no OAuth)</td></tr>
-          <tr><td>C2 CSRF/state</td><td class="warn">⚠️ vuln/hard</td><td class="na">❌ N/A (no OAuth)</td><td class="na">❌ N/A (no OAuth)</td></tr>
-          <tr><td>D1 IdP SPOF</td><td class="warn">⚠️ SPOF in both variants</td><td class="ok">✅ independent from Keycloak</td><td class="na">❌ N/A (not Keycloak-dependent)</td></tr>
-          <tr><td>D2 DB Leak</td><td class="warn">⚠️ vuln/hard (different severity)</td><td class="na">❌ N/A (no DB in current test path)</td><td class="warn">⚠️ vuln/hard</td></tr>
-          <tr><td>E1 Security Headers</td><td class="warn">⚠️ vuln/hard</td><td class="warn">⚠️ vuln/hard</td><td class="warn">⚠️ vuln/hard</td></tr>
+          <tr><td>A1 Brute Force</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (no password)</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td></tr>
+          <tr><td>A2 Credential Stuffing</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (no password)</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td></tr>
+          <tr><td>A3 Phishing (WebAuthn)</td><td class="na">➖ N/A</td><td class="ok">✅ Architecture-protected</td><td class="na">➖ N/A</td></tr>
+          <tr><td>B1 Token Replay</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (no JWT in this flow)</td></tr>
+          <tr><td>B2 JWT alg:none</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (no JWT)</td><td class="na">➖ N/A (no JWT)</td></tr>
+          <tr><td>B3 Session Hijacking</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (not covered by current A6 path)</td></tr>
+          <tr><td>C1 redirect_uri</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (no OAuth)</td><td class="na">➖ N/A (no OAuth)</td></tr>
+          <tr><td>C2 CSRF/state</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="na">➖ N/A (no OAuth)</td><td class="na">➖ N/A (no OAuth)</td></tr>
+          <tr><td>D1 IdP SPOF</td><td class="warn">⚠️ SPOF in both variants</td><td class="ok">✅ Independent from Keycloak</td><td class="na">➖ N/A (not Keycloak-dependent)</td></tr>
+          <tr><td>D2 DB Leak</td><td class="mixed">⚠️ Vulnerable -> Mitigated (severity differs)</td><td class="na">➖ N/A (no DB in current test path)</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td></tr>
+          <tr><td>E1 Security Headers</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td><td class="mixed">⚠️ Vulnerable -> Mitigated</td></tr>
         </tbody>
       </table>
-      <p class="footer">Generated in CI: 2026-04-28 17:54:20 UTC</p>
+      <p class="footer">Generated in CI: 2026-04-28 18:41:03 UTC</p>
     </section>
 
     <section class="card">
       <h2>5. Mitigation and Best Practices</h2>
       <ul>
-        <li>Use strict rate limiting and lockout policies for authentication endpoints.</li>
-        <li>Enforce PKCE (S256), strict <code>state</code> validation, and exact redirect URI allowlists.</li>
-        <li>Harden sessions and cookies: <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite</code>, server-side invalidation.</li>
-        <li>Validate JWT algorithms explicitly and reject unsigned or downgraded tokens.</li>
-        <li>Apply baseline response headers: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy.</li>
-        <li>Reduce SPOF risk with HA IdP topology and failover strategy.</li>
+        <li><strong>A1 Brute Force:</strong> repeated password guessing against one account. <strong>Mitigation:</strong> per-user and per-IP rate limits, temporary lockout, progressive delays, and monitoring for repeated failures.</li>
+        <li><strong>A2 Credential Stuffing:</strong> reuse of leaked credentials at scale. <strong>Mitigation:</strong> bot detection, breached-password checks, MFA/passkeys, anomaly detection, and anti-automation controls.</li>
+        <li><strong>A3 Phishing (WebAuthn):</strong> attacker tries to authenticate from a fake origin. <strong>Mitigation:</strong> enforce WebAuthn origin and RP ID validation, require user verification, and keep origin policy strict.</li>
+        <li><strong>B1 Token Replay:</strong> reuse of an old token/session after logout. <strong>Mitigation:</strong> server-side session invalidation, token revocation lists, short token TTL, and rotating refresh/access tokens.</li>
+        <li><strong>B2 JWT alg:none:</strong> algorithm downgrade to bypass signature checks. <strong>Mitigation:</strong> explicit algorithm allowlist, strict issuer/audience checks, key rotation, and reject unsigned tokens.</li>
+        <li><strong>B3 Session Hijacking:</strong> stolen cookie reused by attacker. <strong>Mitigation:</strong> <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite</code>, session rotation on login, and optional device/IP binding.</li>
+        <li><strong>C1 redirect_uri abuse:</strong> redirecting OAuth flow to attacker-controlled endpoint. <strong>Mitigation:</strong> exact redirect URI matching, no wildcard/substr checks, strict allowlist only.</li>
+        <li><strong>C2 CSRF/state bypass:</strong> forged authorization callback or missing state/PKCE checks. <strong>Mitigation:</strong> mandatory one-time <code>state</code>, nonce validation, PKCE (S256) required, and callback strictness.</li>
+        <li><strong>D1 IdP SPOF:</strong> auth unavailable if IdP is down. <strong>Mitigation:</strong> HA IdP deployment, replication, health probes, automated failover, and clear degraded-mode behavior.</li>
+        <li><strong>D2 DB Leak:</strong> exposed secrets/credentials in dumps or storage. <strong>Mitigation:</strong> secrets manager, encryption at rest, least-privilege DB access, secret scanning, and sanitized logs/backups.</li>
+        <li><strong>E1 Security Headers:</strong> missing browser-side hardening protections. <strong>Mitigation:</strong> enforce HSTS, CSP, X-Frame-Options (or CSP frame-ancestors), X-Content-Type-Options, and Referrer-Policy.</li>
       </ul>
     </section>
   </main>
