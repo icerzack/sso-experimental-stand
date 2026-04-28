@@ -21,12 +21,13 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from pathlib import Path
+from typing import Tuple
 
 EMAIL         = "testuser@example.com"
 WORDLIST_PATH = Path(__file__).parent.parent / "wordlists" / "top100_passwords.txt"
 
 
-def attempt(base_url: str, path: str, email: str, password: str) -> tuple[int, float]:
+def attempt(base_url: str, path: str, email: str, password: str) -> Tuple[int, float]:
     url  = base_url.rstrip("/") + path
     data = urllib.parse.urlencode({"email": email, "password": password}).encode()
     req  = urllib.request.Request(url, data=data, method="POST")

@@ -16,7 +16,12 @@
 set -euo pipefail
 
 BASE_URL="${1:?Usage: $0 <base_url> <id_token>}"
-TOKEN="${2:?Usage: $0 <base_url> <id_token>}"
+TOKEN="${2:-}"
+
+if [[ -z "$TOKEN" ]]; then
+  echo "[A5] SKIPPED — id_token is required for alg=none replay test"
+  exit 0
+fi
 
 echo "[A5] JWT alg=none attack"
 echo "     Target: $BASE_URL"

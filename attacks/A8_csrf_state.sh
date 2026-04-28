@@ -39,7 +39,7 @@ if [[ "$STATUS1" == "400" ]] || echo "$BODY1" | grep -qi "invalid state\|missing
   echo "           PROTECTED — state absence detected"
   RESULTS+=("T1:PROTECTED")
 else
-  echo "           VULNERABLE — callback accepted without state"
+  echo "           VULNERABLE — callback reached token-exchange path without state validation"
   RESULTS+=("T1:VULNERABLE")
 fi
 echo
@@ -54,7 +54,7 @@ if [[ "$STATUS2" == "400" ]] || grep -qi "invalid state" /tmp/c2_t2.txt 2>/dev/n
   echo "           PROTECTED — state mismatch detected (compared with session value)"
   RESULTS+=("T2:PROTECTED")
 else
-  echo "           VULNERABLE — predictable state accepted"
+  echo "           VULNERABLE — predictable state reached token-exchange path"
   RESULTS+=("T2:VULNERABLE")
 fi
 echo

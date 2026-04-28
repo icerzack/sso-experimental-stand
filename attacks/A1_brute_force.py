@@ -20,6 +20,7 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
+from typing import Tuple
 
 MAX_ATTEMPTS = 20
 CREDENTIALS  = [("testuser@example.com", p) for p in [
@@ -30,7 +31,7 @@ CREDENTIALS  = [("testuser@example.com", p) for p in [
 ]]
 
 
-def attempt(base_url: str, path: str, email: str, password: str) -> tuple[int, float]:
+def attempt(base_url: str, path: str, email: str, password: str) -> Tuple[int, float]:
     url  = base_url.rstrip("/") + path
     data = urllib.parse.urlencode({"email": email, "password": password}).encode()
     req  = urllib.request.Request(url, data=data, method="POST")

@@ -77,7 +77,7 @@ make up-a-vuln
 # Profile A — hardened
 make up-a-hard
 # → App:      https://app-a-h.local  (Caddy TLS)
-# → Keycloak: https://keycloak.local
+# → Keycloak: http://keycloak.local:8080
 
 # Profile B — vulnerable
 make up-b-vuln
@@ -123,7 +123,7 @@ make down
 make attack-a
 
 # Override target URL for the hardened variant
-APP_A=https://app-a-h.local KC_A=https://keycloak.local make attack-a
+APP_A=https://app-a-h.local KC_A=http://keycloak.local:8080 APP_A_ALLOWED=app-a-h.local make attack-a
 
 # Profile B attacks
 make attack-b

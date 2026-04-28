@@ -10,8 +10,8 @@
 #   bash A10_idp_spof.sh [profile_a_url] [profile_b_url] [kc_container]
 #
 # Examples:
-#   bash A10_idp_spof.sh http://app-a-v.local:8081 http://app-b-v.local:8082 profile-a-vulnerable-keycloak-1
-#   bash A10_idp_spof.sh https://app-a-h.local     https://app-b-h.local     profile-a-hardened-keycloak-1
+#   bash A10_idp_spof.sh http://app-a-v.local:8081 http://app-b-v.local:8082 profile-a-vuln-keycloak
+#   bash A10_idp_spof.sh https://app-a-h.local     https://app-b-h.local     profile-a-hard-keycloak
 #
 # Result:
 #   SPOF      — profile returned 5xx / connection refused when IdP is down
@@ -21,10 +21,10 @@ set -euo pipefail
 
 APP_A="${1:-http://app-a-v.local:8081}"
 APP_B="${2:-http://app-b-v.local:8082}"
-KC_CONTAINER="${3:-profile-a-vulnerable-keycloak-1}"
+KC_CONTAINER="${3:-profile-a-vuln-keycloak}"
 
 echo "[A10] IdP Single-Point-of-Failure test"
-echo "     Keycloak container: $KC_CONTAINER"
+echo "     Keycloak container: ${KC_CONTAINER:-not-detected}"
 echo "     Profile A:          $APP_A"
 echo "     Profile B:          $APP_B"
 echo
@@ -34,10 +34,25 @@ RESULTS=()
 probe() {
   local label="$1" url="$2"
   local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null || echo "000")
-  echo "  $label → HTTP $code"
+  if code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null); then
+    :
+  else
+    code="000"
+  fi
+  echo "  $label → HTTP $code" >&2
   echo "$code"
 }
+
+detect_keycloak_container() {
+  local candidate="$1"
+  if docker ps --format '{{.Names}}' | grep -E -m1 "^${candidate}$" >/dev/null; then
+    echo "$candidate"
+    return
+  fi
+  docker ps --format '{{.Names}}' | grep -E -m1 "profile-a-.*keycloak|keycloak" || true
+}
+
+KC_CONTAINER="$(detect_keycloak_container "$KC_CONTAINER")"
 
 # ── Baseline: verify apps respond before stopping IdP ───────────────────────
 echo "  [Phase 1] Baseline — IdP running"
@@ -47,7 +62,7 @@ echo
 
 # ── Stop Keycloak ────────────────────────────────────────────────────────────
 echo "  [Phase 2] Stopping container: $KC_CONTAINER"
-if docker stop "$KC_CONTAINER" >/dev/null 2>&1; then
+if [[ -n "$KC_CONTAINER" ]] && docker stop "$KC_CONTAINER" >/dev/null 2>&1; then
   echo "           Container stopped."
 else
   echo "           WARNING: could not stop container (not found or no Docker access)."
@@ -83,7 +98,7 @@ echo
 
 # ── Restart Keycloak ─────────────────────────────────────────────────────────
 echo "  [Phase 4] Restarting container: $KC_CONTAINER"
-if docker start "$KC_CONTAINER" >/dev/null 2>&1; then
+if [[ -n "$KC_CONTAINER" ]] && docker start "$KC_CONTAINER" >/dev/null 2>&1; then
   echo "           Container started."
 else
   echo "           WARNING: could not restart container."

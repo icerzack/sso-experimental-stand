@@ -102,13 +102,14 @@ logs-c:
 # Override APP_A / KC_A env vars to target the hardened variant.
 APP_A ?= http://app-a-v.local:8081
 KC_A  ?= http://keycloak.local:8080
+APP_A_ALLOWED ?= app-a-v.local
 
 attack-a:
-	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(APP_A) keycloak  || true
-	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(APP_A) keycloak  || true
+	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(APP_A) /login     || true
+	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(APP_A)           || true
 	@bash    $(ATTACK_DIR)/A7_redirect_uri.sh        $(KC_A)            || true
 	@bash    $(ATTACK_DIR)/A8_csrf_state.sh          $(APP_A) $(KC_A)   || true
-	@bash    $(ATTACK_DIR)/A9_open_redirect.sh       $(APP_A) app-a-v.local || true
+	@bash    $(ATTACK_DIR)/A9_open_redirect.sh       $(APP_A) $(APP_A_ALLOWED) || true
 	@bash    $(ATTACK_DIR)/A4_token_replay.sh        $(APP_A) ""        || true
 	@bash    $(ATTACK_DIR)/A5_jwt_algnone.sh         $(APP_A) ""        || true
 	@bash    $(ATTACK_DIR)/A6_session_hijack.sh      $(APP_A) ""        || true
@@ -129,8 +130,8 @@ attack-b:
 APP_C ?= http://app-c-v.local:8083
 
 attack-c:
-	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(APP_C) vaultwarden || true
-	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(APP_C) vaultwarden || true
+	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(APP_C)             || true
+	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(APP_C)            || true
 	@bash    $(ATTACK_DIR)/A11_db_leak.sh            profile-c/vulnerable || true
 	@bash    $(ATTACK_DIR)/A12_security_headers.sh   $(APP_C)              || true
 

@@ -36,6 +36,81 @@ jobs:
           127.0.0.1 evil-clone.local
           EOF
 
+      - name: Create CI env files
+        run: |
+          cat > profile-a/vulnerable/.env <<'EOF'
+          PORT=8080
+          APP_BASE_URL=http://app-a-v.local:8081
+          KEYCLOAK_ISSUER_HOST=keycloak.local
+          KEYCLOAK_INTERNAL_HOST=keycloak
+          KEYCLOAK_PORT=8080
+          PROFILE_A_REALM=profile-a-vulnerable
+          PROFILE_A_CLIENT_ID=sso-test-app
+          PROFILE_A_CLIENT_SECRET=testpass123
+          APP_DATABASE_URL=postgres://keycloak:keycloak@postgres:5432/keycloak?sslmode=disable
+          SESSION_SECRET=vulnerable-not-secret-at-all
+          EOF
+
+          cat > profile-a/hardened/.env <<'EOF'
+          PORT=8080
+          APP_BASE_URL=https://app-a-h.local
+          KEYCLOAK_ISSUER_HOST=keycloak.local
+          KEYCLOAK_INTERNAL_HOST=keycloak
+          KEYCLOAK_PORT=8080
+          PROFILE_A_REALM=profile-a-hardened
+          PROFILE_A_CLIENT_ID=sso-test-app
+          PROFILE_A_CLIENT_SECRET=Str0ngCl!entS3cr3t_changeme
+          APP_DATABASE_URL=postgres://keycloak:keycloak@postgres:5432/keycloak?sslmode=disable
+          SESSION_SECRET=hardened-64-char-random-secret-replace-in-production-please-xx
+          EOF
+
+          cat > profile-b/vulnerable/.env <<'EOF'
+          PORT=8080
+          WEBAUTHN_RP_ID=app-b-v.local
+          WEBAUTHN_RP_ORIGINS=http://app-b-v.local:8082
+          WEBAUTHN_USER_ID=demo-user
+          SESSION_SECRET=insecure-key
+          EOF
+
+          cat > profile-b/hardened/.env <<'EOF'
+          PORT=8080
+          WEBAUTHN_RP_ID=app-b-h.local
+          WEBAUTHN_RP_ORIGINS=https://app-b-h.local
+          WEBAUTHN_USER_ID=demo-user
+          SESSION_SECRET=hardened-64-char-random-secret-replace-in-production-please-xx
+          EOF
+
+          cat > profile-c/vulnerable/.env <<'EOF'
+          DOMAIN=http://app-c-v.local:8083
+          SIGNUPS_ALLOWED=true
+          LOGIN_RATELIMIT_MAX_BURST=1000
+          LOGIN_RATELIMIT_SECONDS=1
+          ADMIN_RATELIMIT_MAX_BURST=1000
+          ADMIN_RATELIMIT_SECONDS=1
+          ADMIN_TOKEN=admin
+          ROCKET_TLS=
+          SESSION_JWT_EXPIRATION=10080
+          WEBSOCKET_ENABLED=true
+          LOG_LEVEL=warn
+          PROFILE_C_EMAIL=testuser@example.com
+          PROFILE_C_PASSWORD=password123
+          EOF
+
+          cat > profile-c/hardened/.env <<'EOF'
+          DOMAIN=https://app-c-h.local
+          SIGNUPS_ALLOWED=false
+          LOGIN_RATELIMIT_MAX_BURST=5
+          LOGIN_RATELIMIT_SECONDS=60
+          ADMIN_RATELIMIT_MAX_BURST=3
+          ADMIN_RATELIMIT_SECONDS=60
+          ADMIN_TOKEN=Str0ngAdm!nT0ken_changeme
+          SESSION_JWT_EXPIRATION=30
+          WEBSOCKET_ENABLED=true
+          LOG_LEVEL=warn
+          PROFILE_C_EMAIL=testuser@example.com
+          PROFILE_C_PASSWORD=password123
+          EOF
+
       - name: Build all images
         run: |
           docker compose -f profile-a/vulnerable/docker-compose.yml --project-name profile-a-vuln build
@@ -66,7 +141,7 @@ jobs:
                 ;;
               a-hard)
                 make up-a-hard
-                make attack-a APP_A=https://app-a-h.local KC_A=https://keycloak.local | tee "results/raw/${variant}.txt"
+                make attack-a APP_A=https://app-a-h.local KC_A=http://keycloak.local:8080 APP_A_ALLOWED=app-a-h.local | tee "results/raw/${variant}.txt"
                 make down-a
                 ;;
               b-vuln)

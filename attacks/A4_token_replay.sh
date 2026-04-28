@@ -17,7 +17,12 @@
 set -euo pipefail
 
 BASE_URL="${1:?Usage: $0 <base_url> <session_cookie>}"
-SESSION="${2:?Usage: $0 <base_url> <session_cookie>}"
+SESSION="${2:-}"
+
+if [[ -z "$SESSION" ]]; then
+  echo "[A4] SKIPPED — session cookie is required for replay test"
+  exit 0
+fi
 
 PROTECTED="${BASE_URL%/}/protected"
 LOGOUT="${BASE_URL%/}/logout"
