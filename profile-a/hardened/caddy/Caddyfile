@@ -1,0 +1,21 @@
+{
+    local_certs
+    admin off
+}
+
+app-a-h.local {
+    tls internal
+
+    reverse_proxy app:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+        -Server
+    }
+}

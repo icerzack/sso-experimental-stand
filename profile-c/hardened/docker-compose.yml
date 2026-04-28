@@ -1,0 +1,58 @@
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: profile-c/hardened/app/Dockerfile
+    container_name: profile-c-hard-app
+    env_file: .env
+    networks:
+      - profile-c-net
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: profile-c-hard-vaultwarden
+    env_file: .env
+    volumes:
+      - vw_data:/data
+    networks:
+      - profile-c-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/alive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    container_name: profile-c-hard-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - profile-c-net
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost/alive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  profile-c-net:
+    driver: bridge
+
+volumes:
+  vw_data:

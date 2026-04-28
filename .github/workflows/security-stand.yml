@@ -1,0 +1,119 @@
+name: Security Stand CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-run-attacks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Add required hosts
+        run: |
+          cat <<'EOF' | sudo tee -a /etc/hosts
+          127.0.0.1 app-a-v.local
+          127.0.0.1 app-a-h.local
+          127.0.0.1 app-b-v.local
+          127.0.0.1 app-b-h.local
+          127.0.0.1 app-c-v.local
+          127.0.0.1 app-c-h.local
+          127.0.0.1 keycloak.local
+          127.0.0.1 evil-clone.local
+          EOF
+
+      - name: Build all images
+        run: |
+          docker compose -f profile-a/vulnerable/docker-compose.yml --project-name profile-a-vuln build
+          docker compose -f profile-a/hardened/docker-compose.yml --project-name profile-a-hard build
+          docker compose -f profile-b/vulnerable/docker-compose.yml --project-name profile-b-vuln build
+          docker compose -f profile-b/hardened/docker-compose.yml --project-name profile-b-hard build
+          docker compose -f profile-c/vulnerable/docker-compose.yml --project-name profile-c-vuln build
+          docker compose -f profile-c/hardened/docker-compose.yml --project-name profile-c-hard build
+
+      - name: Prepare output folders
+        run: mkdir -p results/raw results/processed
+
+      - name: Run attacks on all 6 profiles sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash profile-c/hardened/nginx/gen-certs.sh
+
+          run_variant() {
+            local variant="$1"
+            echo "=== Running variant: $variant ==="
+            case "$variant" in
+              a-vuln)
+                make up-a-vuln
+                make attack-a APP_A=http://app-a-v.local:8081 KC_A=http://keycloak.local:8080 | tee "results/raw/${variant}.txt"
+                make down-a
+                ;;
+              a-hard)
+                make up-a-hard
+                make attack-a APP_A=https://app-a-h.local KC_A=https://keycloak.local | tee "results/raw/${variant}.txt"
+                make down-a
+                ;;
+              b-vuln)
+                make up-b-vuln
+                make attack-b APP_B=http://app-b-v.local:8082 | tee "results/raw/${variant}.txt"
+                make down-b
+                ;;
+              b-hard)
+                make up-b-hard
+                make attack-b APP_B=https://app-b-h.local | tee "results/raw/${variant}.txt"
+                make down-b
+                ;;
+              c-vuln)
+                make up-c-vuln
+                make attack-c APP_C=http://app-c-v.local:8083 | tee "results/raw/${variant}.txt"
+                make down-c
+                ;;
+              c-hard)
+                make up-c-hard
+                make attack-c APP_C=https://app-c-h.local | tee "results/raw/${variant}.txt"
+                make down-c
+                ;;
+              *)
+                echo "Unknown variant: $variant" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          run_variant a-vuln
+          run_variant a-hard
+          run_variant b-vuln
+          run_variant b-hard
+          run_variant c-vuln
+          run_variant c-hard
+
+      - name: Build report artifacts
+        run: python3 scripts/generate_attack_report.py
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-stand-results
+          path: |
+            results/raw/**
+            results/processed/**
+
+      - name: Always cleanup
+        if: always()
+        run: make down || true

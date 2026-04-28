@@ -32,6 +32,9 @@ playwright-report/
 results/raw/
 results/playwright/
 
+# Go build cache
+.gocache/
+
 # Editor/IDE
 # .idea/
 # .vscode/
