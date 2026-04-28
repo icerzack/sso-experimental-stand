@@ -47,7 +47,7 @@ yaml_list() {
   echo "$raw" | tr ',' '\n' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | sed '/^$/d'
 }
 
-PROTOCOLS=($(yaml_list "protocols"))
+PROFILES=($(yaml_list "profiles"))
 SCENARIOS=($(yaml_list "scenarios"))
 CONCURRENCY=($(yaml_list "concurrency"))
 
@@ -57,14 +57,14 @@ REPEATS="$(yaml_scalar "repeats")"
 SEED="$(yaml_scalar "seed")"
 
 KEYCLOAK_URL="$(yaml_scalar "keycloak_url")"
-SAML_BASE="$(yaml_scalar "saml_sp_base_url")"
-OIDC_BASE="$(yaml_scalar "oidc_rp_base_url")"
+APP_BASE="$(yaml_scalar "app_base_url")"
 
 PROM_URL="$(yaml_scalar "prometheus_url")"
 PROM_STEP="$(yaml_scalar "prometheus_step")"
 
 USERNAME="$(yaml_scalar "username")"
 PASSWORD="$(yaml_scalar "password")"
+PASSKEY_USERNAME="$(yaml_scalar "passkey_username")"
 
 RESULTS_RAW="$ROOT_DIR/results/raw"
 
@@ -90,18 +90,17 @@ PY
     echo "" >&2
     echo "Fix (recommended): add hosts entries:" >&2
     echo "  127.0.0.1 keycloak.localhost" >&2
-    echo "  127.0.0.1 saml-sp.localhost" >&2
-    echo "  127.0.0.1 oidc-rp.localhost" >&2
+    echo "  127.0.0.1 app.localhost" >&2
+    echo "  127.0.0.1 vaultwarden.localhost" >&2
     echo "" >&2
     echo "On macOS/Linux:" >&2
-    echo "  sudo sh -c 'printf \"127.0.0.1 keycloak.localhost\\n127.0.0.1 saml-sp.localhost\\n127.0.0.1 oidc-rp.localhost\\n\" >> /etc/hosts'" >&2
+    echo "  sudo sh -c 'printf \"127.0.0.1 keycloak.localhost\\n127.0.0.1 app.localhost\\n127.0.0.1 vaultwarden.localhost\\n\" >> /etc/hosts'" >&2
     exit 2
   fi
 }
 
 require_resolvable_host "KEYCLOAK_URL" "$(url_host "$KEYCLOAK_URL")"
-require_resolvable_host "SAML_SP_BASE_URL" "$(url_host "$SAML_BASE")"
-require_resolvable_host "OIDC_RP_BASE_URL" "$(url_host "$OIDC_BASE")"
+require_resolvable_host "APP_BASE_URL" "$(url_host "$APP_BASE")"
 
 run_id() {
   python3 - <<'PY'
@@ -117,15 +116,6 @@ scenario_script() {
     warm_idp) echo "$ROOT_DIR/k6/scripts/warm_login.js" ;;
     session_reuse) echo "$ROOT_DIR/k6/scripts/session_access.js" ;;
     logout_relogin) echo "$ROOT_DIR/k6/scripts/logout_relogin.js" ;;
-    *) echo "" ;;
-  esac
-}
-
-protocol_base_url() {
-  local protocol="$1"
-  case "$protocol" in
-    saml) echo "$SAML_BASE" ;;
-    oidc) echo "$OIDC_BASE" ;;
     *) echo "" ;;
   esac
 }
@@ -148,26 +138,26 @@ def read_list(key):
   return []
 
 cfg_path = sys.argv[3]
-protocols = read_list("protocols")
+profiles = read_list("profiles")
 scenarios = read_list("scenarios")
 concurrency = read_list("concurrency")
 
 rows = []
-for protocol in protocols:
+for profile in profiles:
   for scenario in scenarios:
     for conc in concurrency:
       for rep in range(1, repeats + 1):
-        rows.append((protocol, scenario, int(conc), rep))
+        rows.append((profile, scenario, int(conc), rep))
 
 random.shuffle(rows)
-for protocol, scenario, conc, rep in rows:
-  print(f"{protocol},{scenario},{conc},{rep}")
+for profile, scenario, conc, rep in rows:
+  print(f"{profile},{scenario},{conc},{rep}")
 PY
 }
 
 echo "=== Running experiment matrix ==="
 echo "Config: $CFG"
-echo "Matrix: protocols=${PROTOCOLS[*]} scenarios=${SCENARIOS[*]} concurrency=${CONCURRENCY[*]} repeats=$REPEATS seed=$SEED"
+echo "Matrix: profiles=${PROFILES[*]} scenarios=${SCENARIOS[*]} concurrency=${CONCURRENCY[*]} repeats=$REPEATS seed=$SEED"
 
 echo ""
 echo "Ensuring the stand is up..."
@@ -207,16 +197,16 @@ done
 matrix_file="$(mktemp)"
 generate_matrix >"$matrix_file"
 
-while IFS=',' read -r protocol scenario conc rep; do
-  if [[ -z "${protocol:-}" || -z "${scenario:-}" || -z "${conc:-}" || -z "${rep:-}" ]]; then
+while IFS=',' read -r profile scenario conc rep; do
+  if [[ -z "${profile:-}" || -z "${scenario:-}" || -z "${conc:-}" || -z "${rep:-}" ]]; then
     continue
   fi
 
   script="$(scenario_script "$scenario")"
-  base_url="$(protocol_base_url "$protocol")"
+  base_url="$APP_BASE"
 
   if [[ -z "$script" || -z "$base_url" ]]; then
-    echo "Skipping invalid matrix row: $row" >&2
+    echo "Skipping invalid matrix row: profile=$profile scenario=$scenario" >&2
     continue
   fi
 
@@ -225,21 +215,21 @@ while IFS=',' read -r protocol scenario conc rep; do
   mkdir -p "$run_dir"
 
   echo ""
-  echo "--- Run $rid: protocol=$protocol scenario=$scenario concurrency=$conc repeat=$rep ---"
+  echo "--- Run $rid: profile=$profile scenario=$scenario concurrency=$conc repeat=$rep ---"
 
   meta_path="$run_dir/run_metadata.json"
   docker_stats_path="$run_dir/docker_stats.jsonl"
   prom_dir="$run_dir/prometheus"
 
   "$ROOT_DIR/experiments/collect_run_metadata.sh" \
-    "$meta_path" "$rid" "$protocol" "$scenario" "$conc" "$rep" "$SEED" "$WARM_UP_S" "$STEADY_STATE_S" "$((WARM_UP_S + STEADY_STATE_S))"
+    "$meta_path" "$rid" "$profile" "$scenario" "$conc" "$rep" "$SEED" "$WARM_UP_S" "$STEADY_STATE_S" "$((WARM_UP_S + STEADY_STATE_S))"
 
   # Collect container image references (best-effort)
-  docker inspect sso-keycloak sso-saml-sp sso-oidc-rp sso-postgres sso-prometheus sso-grafana sso-caddy >/dev/null 2>&1 || true
+  docker inspect sso-keycloak sso-app sso-vaultwarden sso-postgres sso-prometheus sso-grafana sso-caddy >/dev/null 2>&1 || true
   docker ps --format '{{.Names}}|{{.Image}}|{{.ID}}' > "$run_dir/docker_containers.txt" 2>/dev/null || true
 
   # Start docker stats sampling in the background
-  "$ROOT_DIR/experiments/collect_docker_stats.sh" "$docker_stats_path" 2 sso-keycloak sso-saml-sp sso-oidc-rp >/dev/null 2>&1 &
+  "$ROOT_DIR/experiments/collect_docker_stats.sh" "$docker_stats_path" 2 sso-keycloak sso-app sso-vaultwarden >/dev/null 2>&1 &
   stats_pid="$!"
 
   start_epoch="$(date +%s)"
@@ -247,8 +237,10 @@ while IFS=',' read -r protocol scenario conc rep; do
   # Run k6 with per-run summary export.
   BASE_URL="$base_url" \
   KEYCLOAK_URL="$KEYCLOAK_URL" \
+  PROFILE="$profile" \
   USERNAME="$USERNAME" \
   PASSWORD="$PASSWORD" \
+  PASSKEY_USERNAME="$PASSKEY_USERNAME" \
   CONCURRENCY="$conc" \
   WARM_UP_S="$WARM_UP_S" \
   STEADY_STATE_S="$STEADY_STATE_S" \

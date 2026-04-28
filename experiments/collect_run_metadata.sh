@@ -6,13 +6,13 @@
 set -euo pipefail
 
 if [[ $# -lt 6 ]]; then
-  echo "Usage: $0 <output_json> <run_id> <protocol> <scenario> <concurrency> <repeat_no> [seed] [warm_up_s] [steady_state_s] [duration_s]" >&2
+  echo "Usage: $0 <output_json> <run_id> <profile> <scenario> <concurrency> <repeat_no> [seed] [warm_up_s] [steady_state_s] [duration_s]" >&2
   exit 2
 fi
 
 OUTPUT_JSON="$1"
 RUN_ID="$2"
-PROTOCOL="$3"
+PROFILE="$3"
 SCENARIO="$4"
 CONCURRENCY="$5"
 REPEAT_NO="$6"
@@ -108,7 +108,7 @@ MEM_TOTAL_MB="$(get_mem_total_mb)"
 
 mkdir -p "$(dirname "$OUTPUT_JSON")"
 
-python3 - "$OUTPUT_JSON" "$RUN_ID" "$STARTED_AT" "$PROTOCOL" "$SCENARIO" "$CONCURRENCY" "$REPEAT_NO" "$SEED" "$WARM_UP_S" "$STEADY_STATE_S" "$DURATION_S" "$OS_NAME" "$KERNEL" "$CPU_MODEL" "$CPU_CORES" "$MEM_TOTAL_MB" "$GIT_COMMIT" "$DOCKER_VERSION" "$DOCKER_COMPOSE_VERSION" "$K6_VERSION" <<'PY'
+python3 - "$OUTPUT_JSON" "$RUN_ID" "$STARTED_AT" "$PROFILE" "$SCENARIO" "$CONCURRENCY" "$REPEAT_NO" "$SEED" "$WARM_UP_S" "$STEADY_STATE_S" "$DURATION_S" "$OS_NAME" "$KERNEL" "$CPU_MODEL" "$CPU_CORES" "$MEM_TOTAL_MB" "$GIT_COMMIT" "$DOCKER_VERSION" "$DOCKER_COMPOSE_VERSION" "$K6_VERSION" <<'PY'
 import json
 import sys
 
@@ -127,7 +127,7 @@ def maybe_int(x):
   output_json,
   run_id,
   started_at,
-  protocol,
+  profile,
   scenario,
   concurrency,
   repeat_no,
@@ -149,7 +149,7 @@ def maybe_int(x):
 data = {
   "run_id": run_id,
   "started_at": started_at,
-  "protocol": protocol,
+  "profile": profile,
   "scenario": scenario,
   "concurrency": maybe_int(concurrency) or 0,
   "repeat_no": maybe_int(repeat_no) or 0,

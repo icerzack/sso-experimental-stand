@@ -21,14 +21,14 @@ export const options = {
       },
 };
 
-const BASE_URL = __ENV.BASE_URL || 'http://saml-sp.localhost';
+const BASE_URL = __ENV.BASE_URL || 'http://app.localhost';
+const PROFILE = __ENV.PROFILE || 'profile-c';
 const USERNAME = __ENV.USERNAME || 'testuser1';
 const PASSWORD = __ENV.PASSWORD || 'password123';
 
 const loginE2E = new Trend('login_e2e_ms', true);
 const redirectCountTrend = new Trend('redirect_count', true);
-const protocolPayloadSizeBytes = new Trend('token_assertion_size_bytes', true);
-const protocolErrors = new Rate('protocol_error_rate');
+const profileErrors = new Rate('profile_error_rate');
 
 const KEYCLOAK_URL = __ENV.KEYCLOAK_URL || 'http://keycloak.localhost';
 const MAX_REDIRECTS = parseInt(__ENV.MAX_REDIRECTS || '15', 10);
@@ -38,10 +38,7 @@ function safeClearCookies() {
   try {
     jar.clear(BASE_URL);
     jar.clear(KEYCLOAK_URL);
-  } catch (_) {
-    // If clear() isn't available in the runtime, we still proceed.
-    // The experiment runner should prefer fresh VUs per run for strict cold runs.
-  }
+  } catch (_) {}
 }
 
 function extractFirstMatch(text, regex) {
@@ -64,7 +61,6 @@ function isRedirect(res) {
 
 function resolveUrl(baseUrl, location) {
   if (!location) return location;
-  // Keycloak login pages often HTML-escape '&' inside form actions.
   location = String(location).replaceAll('&amp;', '&');
 
   const base = String(baseUrl || '');
@@ -74,21 +70,17 @@ function resolveUrl(baseUrl, location) {
   const keycloakOriginMatch = String(KEYCLOAK_URL || '').match(/^(https?:\/\/[^/]+)/i);
   const keycloakOrigin = keycloakOriginMatch ? keycloakOriginMatch[1] : '';
 
-  // If we already have an absolute URL, normalize internal container hosts back to external hosts.
   if (location.startsWith('http://') || location.startsWith('https://')) {
     if (keycloakOrigin && location.includes('://keycloak:')) {
       return location.replace(/^https?:\/\/keycloak(?::\d+)?/i, keycloakOrigin);
     }
-    if (location.includes('://saml-sp:') || location.includes('://oidc-rp:')) {
-      return location
-        .replace(/^https?:\/\/saml-sp(?::\d+)?/i, origin)
-        .replace(/^https?:\/\/oidc-rp(?::\d+)?/i, origin);
+    if (location.includes('://app:')) {
+      return location.replace(/^https?:\/\/app(?::\d+)?/i, origin);
     }
     return location;
   }
   const pathPart = base.replace(origin, '').split('?')[0].split('#')[0] || '/';
   if (location.startsWith('/')) return `${origin}${location}`;
-  // Resolve relative to the current URL path (directory), not to origin root.
   const dir = pathPart.endsWith('/') ? pathPart : pathPart.substring(0, pathPart.lastIndexOf('/') + 1);
   return `${origin}${dir}${location}`;
 }
@@ -108,52 +100,26 @@ function followRedirects(res, currentUrl, params, maxRedirects) {
   return { res, redirects, currentUrl };
 }
 
-function maybeHandleSamlPostBinding(res, currentUrl, params) {
-  // After Keycloak login, SAML flow often returns an auto-submitting HTML form:
-  // <form action=".../callback" method="post"><input name="SAMLResponse" value="..."/>
-  if (!res || res.status !== 200 || !res.body) {
-    return null;
-  }
-  if (!res.body.includes('SAMLResponse')) {
-    return null;
-  }
-  const action = extractFormAction(res.body);
-  const samlResponse = extractInputValue(res.body, 'SAMLResponse');
-  const relayState = extractInputValue(res.body, 'RelayState');
-  if (!action || !samlResponse) {
-    return null;
-  }
-  protocolPayloadSizeBytes.add(samlResponse.length);
-  const payload = relayState ? { SAMLResponse: samlResponse, RelayState: relayState } : { SAMLResponse: samlResponse };
-  const postUrl = resolveUrl(currentUrl, action);
-  return http.post(postUrl, payload, Object.assign({}, params, { redirects: 0 }));
-}
-
 export default function () {
-  // Cold run: best-effort cookie clearing to avoid VU-local session reuse.
   safeClearCookies();
 
   const params = { redirects: 0 };
   const started = Date.now();
 
-  // Step 1: Access protected endpoint (will redirect to app login)
-  let currentUrl = `${BASE_URL}/protected`;
+  let currentUrl = `${BASE_URL}/login/${PROFILE}`;
   let res = http.get(currentUrl, params);
 
-  // Step 2+: Follow redirects (app -> keycloak -> callback -> protected)
   let totalRedirects = 0;
 
-  // Follow until we reach a non-redirect response.
   let out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
   res = out.res;
   currentUrl = out.currentUrl;
   totalRedirects += out.redirects;
 
-  // If we got the Keycloak login page, submit credentials.
   if (res.status === 200 && res.body && res.body.includes('login') && res.body.includes('username')) {
     const formAction = extractFormAction(res.body);
     if (!formAction) {
-      protocolErrors.add(1);
+      profileErrors.add(1);
     } else {
       const postUrl = resolveUrl(currentUrl, formAction);
       res = http.post(postUrl, { username: USERNAME, password: PASSWORD }, params);
@@ -164,17 +130,6 @@ export default function () {
     }
   }
 
-  // SAML: handle POST binding form if present (then follow redirects to /protected).
-  const maybePosted = maybeHandleSamlPostBinding(res, currentUrl, params);
-  if (maybePosted) {
-    res = maybePosted;
-    out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-    res = out.res;
-    currentUrl = out.currentUrl;
-    totalRedirects += out.redirects;
-  }
-
-  // If we still ended up with redirects (e.g. app redirects to /protected), follow them.
   out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
   res = out.res;
   currentUrl = out.currentUrl;
@@ -186,9 +141,9 @@ export default function () {
 
   const ok = check(res, {
     'protected page accessible': (r) => r && r.status === 200,
-    'user info displayed': (r) => r && r.body && r.body.includes(USERNAME),
+    'profile result displayed': (r) => r && r.body && (r.body.includes(PROFILE) || /passkey|webauthn|security key/i.test(r.body)),
   });
-  protocolErrors.add(ok ? 0 : 1);
+  profileErrors.add(ok ? 0 : 1);
 
   sleep(1);
 }

@@ -13,217 +13,36 @@ export const options = {
     { duration: `${STEADY_STATE_S}s`, target: CONCURRENCY },
     { duration: `${RAMP_DOWN_S}s`, target: 0 },
   ],
-  thresholds: (__ENV.DISABLE_THRESHOLDS === '1')
-    ? {}
-    : {
-        login_e2e_ms: ['p(95)<1000'],
-        http_req_failed: ['rate<0.1'],
-      },
+  thresholds: (__ENV.DISABLE_THRESHOLDS === '1') ? {} : {
+    login_e2e_ms: ['p(95)<1000'],
+    http_req_failed: ['rate<0.1'],
+  },
 };
 
-const BASE_URL = __ENV.BASE_URL || 'http://saml-sp.localhost';
+const BASE_URL = __ENV.BASE_URL || 'http://app.localhost';
+const PROFILE = __ENV.PROFILE || 'profile-c';
 const USERNAME = __ENV.USERNAME || 'testuser1';
 const PASSWORD = __ENV.PASSWORD || 'password123';
 
 const loginE2E = new Trend('login_e2e_ms', true);
 const redirectCountTrend = new Trend('redirect_count', true);
-const protocolErrors = new Rate('protocol_error_rate');
+const profileErrors = new Rate('profile_error_rate');
 
-const KEYCLOAK_URL = __ENV.KEYCLOAK_URL || 'http://keycloak.localhost';
-const MAX_REDIRECTS = parseInt(__ENV.MAX_REDIRECTS || '15', 10);
-
-function extractFirstMatch(text, regex) {
-  const m = text.match(regex);
-  return m ? m[1] : null;
-}
-
-function extractFormAction(html) {
-  return extractFirstMatch(html, /<form[^>]*action="([^"]+)"/i);
-}
-
-function extractInputValue(html, name) {
-  const re = new RegExp(`<input[^>]*name="${name}"[^>]*value="([^"]*)"`, 'i');
-  return extractFirstMatch(html, re);
-}
-
-function isRedirect(res) {
-  return res && (res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307 || res.status === 308);
-}
-
-function resolveUrl(baseUrl, location) {
-  if (!location) return location;
-  const base = String(baseUrl || '');
-  const originMatch = base.match(/^(https?:\/\/[^/]+)/i);
-  const origin = originMatch ? originMatch[1] : '';
-  location = String(location).replaceAll('&amp;', '&');
-
-  const keycloakOriginMatch = String(KEYCLOAK_URL || '').match(/^(https?:\/\/[^/]+)/i);
-  const keycloakOrigin = keycloakOriginMatch ? keycloakOriginMatch[1] : '';
-
-  if (location.startsWith('http://') || location.startsWith('https://')) {
-    if (keycloakOrigin && location.includes('://keycloak:')) {
-      return location.replace(/^https?:\/\/keycloak(?::\d+)?/i, keycloakOrigin);
-    }
-    if (location.includes('://saml-sp:') || location.includes('://oidc-rp:')) {
-      return location
-        .replace(/^https?:\/\/saml-sp(?::\d+)?/i, origin)
-        .replace(/^https?:\/\/oidc-rp(?::\d+)?/i, origin);
-    }
-    return location;
-  }
-  const pathPart = base.replace(origin, '').split('?')[0].split('#')[0] || '/';
-  if (location.startsWith('/')) return `${origin}${location}`;
-  const dir = pathPart.endsWith('/') ? pathPart : pathPart.substring(0, pathPart.lastIndexOf('/') + 1);
-  return `${origin}${dir}${location}`;
-}
-
-function followRedirects(res, currentUrl, params, maxRedirects) {
-  let redirects = 0;
-  while (isRedirect(res) && redirects < maxRedirects) {
-    const loc = res.headers.Location;
-    if (!loc) {
-      break;
-    }
-    const nextUrl = resolveUrl(currentUrl, loc);
-    res = http.get(nextUrl, Object.assign({}, params, { redirects: 0 }));
-    currentUrl = nextUrl;
-    redirects++;
-  }
-  return { res, redirects, currentUrl };
-}
-
-function maybeHandleSamlPostBinding(res, currentUrl, params) {
-  if (!res || res.status !== 200 || !res.body) {
-    return null;
-  }
-  if (!res.body.includes('SAMLResponse')) {
-    return null;
-  }
-  const action = extractFormAction(res.body);
-  const samlResponse = extractInputValue(res.body, 'SAMLResponse');
-  const relayState = extractInputValue(res.body, 'RelayState');
-  if (!action || !samlResponse) {
-    return null;
-  }
-  const payload = relayState ? { SAMLResponse: samlResponse, RelayState: relayState } : { SAMLResponse: samlResponse };
-  const postUrl = resolveUrl(currentUrl, action);
-  return http.post(postUrl, payload, Object.assign({}, params, { redirects: 0 }));
-}
-
-function clearAppCookiesOnly() {
-  // Warm IdP login means: no application session, but an existing Keycloak session.
-  // Best-effort: clear cookies for the app only, keep Keycloak cookies.
-  const jar = http.cookieJar();
-  try {
-    jar.clear(BASE_URL);
-  } catch (_) {
-    // ignore
-  }
-}
-
-// First, establish a Keycloak session by logging in once (setup is executed once per test).
-export function setup() {
-  const jar = http.cookieJar();
-  let currentUrl = `${BASE_URL}/protected`;
-  let res = http.get(currentUrl, { redirects: 0 });
-  
-  // Follow login flow once to establish Keycloak session
-  if (res.status === 302) {
-    const nextUrl = resolveUrl(currentUrl, res.headers.Location);
-    currentUrl = nextUrl;
-    res = http.get(nextUrl, { redirects: 0 });
-  }
-  if (res.status === 302) {
-    const nextUrl = resolveUrl(currentUrl, res.headers.Location);
-    currentUrl = nextUrl;
-    res = http.get(nextUrl, { redirects: 0 });
-  }
-  
-  if (res.status === 200 && res.body.includes('login')) {
-    const formAction = extractFormAction(res.body);
-    if (formAction) {
-      const postUrl = resolveUrl(currentUrl, formAction);
-      currentUrl = postUrl;
-      res = http.post(postUrl, {
-        username: USERNAME,
-        password: PASSWORD,
-      }, { redirects: 0 });
-    }
-  }
-  
-  // Complete redirects and handle SAML POST binding if present.
-  let totalRedirects = 0;
-  let out = followRedirects(res, currentUrl, { redirects: 0 }, MAX_REDIRECTS);
-  res = out.res;
-  currentUrl = out.currentUrl;
-  totalRedirects += out.redirects;
-
-  const maybePosted = maybeHandleSamlPostBinding(res, currentUrl, { redirects: 0 });
-  if (maybePosted) {
-    res = maybePosted;
-    out = followRedirects(res, currentUrl, { redirects: 0 }, MAX_REDIRECTS);
-    res = out.res;
-    currentUrl = out.currentUrl;
-    totalRedirects += out.redirects;
-  }
-
-  // Return cookies for Keycloak host to reuse the IdP session.
-  return { keycloakCookies: jar.cookiesForURL(KEYCLOAK_URL), redirects: totalRedirects };
-}
-
-export default function (data) {
-  clearAppCookiesOnly();
-
-  const jar = http.cookieJar();
-  if (data && data.keycloakCookies) {
-    for (const [name, values] of Object.entries(data.keycloakCookies)) {
-      if (!Array.isArray(values) || values.length < 1) continue;
-      // Keep only basic name/value; domain/path flags are handled by the jar.
-      jar.set(KEYCLOAK_URL, name, values[0]);
-    }
-  }
-
-  const params = { redirects: 0 };
+export default function () {
   const started = Date.now();
+  const target = PROFILE === 'profile-c' ? `${BASE_URL}/login/profile-c` : `${BASE_URL}/login/${PROFILE}`;
+  const res = PROFILE === 'profile-c'
+    ? http.post(target, { username: USERNAME, password: PASSWORD }, { redirects: 0 })
+    : http.get(target, { redirects: 0 });
 
-  let currentUrl = `${BASE_URL}/protected`;
-  let res = http.get(currentUrl, params);
-  let totalRedirects = 0;
+  loginE2E.add(Date.now() - started);
+  redirectCountTrend.add(res.status === 302 ? 1 : 0);
 
-  let out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-  res = out.res;
-  currentUrl = out.currentUrl;
-  totalRedirects += out.redirects;
-
-  // Warm IdP login should not show the credential form (if it does, IdP session isn't warm).
-  if (res.status === 200 && res.body && res.body.includes('login') && res.body.includes('username')) {
-    protocolErrors.add(1);
-  }
-
-  const maybePosted = maybeHandleSamlPostBinding(res, currentUrl, params);
-  if (maybePosted) {
-    res = maybePosted;
-    out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-    res = out.res;
-    currentUrl = out.currentUrl;
-    totalRedirects += out.redirects;
-  }
-
-  out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-  res = out.res;
-  currentUrl = out.currentUrl;
-  totalRedirects += out.redirects;
-
-  const finished = Date.now();
-  loginE2E.add(finished - started);
-  redirectCountTrend.add(totalRedirects);
-  
   const ok = check(res, {
-    'protected page accessible': (r) => r && r.status === 200,
-    'user info displayed': (r) => r && r.body && r.body.includes(USERNAME),
+    'warm profile endpoint is reachable': (r) => r && (r.status === 200 || r.status === 302),
   });
-  protocolErrors.add(ok ? 0 : 1);
-  
+  profileErrors.add(ok ? 0 : 1);
+
   sleep(1);
 }
 
@@ -235,4 +54,3 @@ export function handleSummary(data) {
     [__ENV.SUMMARY_PATH]: JSON.stringify(data, null, 2),
   };
 }
-

@@ -3,12 +3,12 @@
   "title": "SSO experiment run metadata",
   "type": "object",
   "additionalProperties": true,
-  "required": ["run_id", "started_at", "protocol", "scenario", "concurrency", "repeat_no"],
+  "required": ["run_id", "started_at", "profile", "scenario", "concurrency", "repeat_no"],
   "properties": {
     "run_id": { "type": "string", "minLength": 1 },
     "started_at": { "type": "string", "format": "date-time" },
     "finished_at": { "type": "string", "format": "date-time" },
-    "protocol": { "type": "string", "enum": ["saml", "oidc"] },
+    "profile": { "type": "string", "enum": ["profile-a", "profile-b", "profile-c"] },
     "scenario": {
       "type": "string",
       "enum": ["cold", "warm_idp", "session_reuse", "logout_relogin"]
@@ -23,8 +23,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "saml_sp_base_url": { "type": "string" },
-        "oidc_rp_base_url": { "type": "string" },
+        "app_base_url": { "type": "string" },
+        "vaultwarden_url": { "type": "string" },
         "keycloak_base_url": { "type": "string" }
       }
     },

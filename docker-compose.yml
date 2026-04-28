@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -19,9 +17,9 @@ services:
       retries: 5
 
   keycloak:
-    image: quay.io/keycloak/keycloak:latest
+    image: quay.io/keycloak/keycloak:25.0.0
     container_name: sso-keycloak
-    command: 
+    command:
       - start-dev
       - --import-realm
       - --hostname-strict=false
@@ -33,15 +31,13 @@ services:
       KC_HOSTNAME: keycloak.localhost
       KC_HOSTNAME_PORT: 8080
       KC_HOSTNAME_STRICT: false
-      KC_PROXY: edge
-      KC_PROXY_ADDRESS_FORWARDING: true
       KC_HTTP_RELATIVE_PATH: /
       KC_METRICS_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      - ./keycloak/realms:/opt/keycloak/data/import:ro
     ports:
       - "8080:8080"
     networks:
@@ -56,54 +52,57 @@ services:
       retries: 10
       start_period: 60s
 
-  saml-sp:
+  app:
     build:
-      context: ./saml-sp
-      dockerfile: Dockerfile
-    container_name: sso-saml-sp
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: sso-app
     environment:
-      PORT: ${SAML_SP_PORT:-8080}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-sso-test}
-      SAML_SP_URL: ${SAML_SP_URL:-http://saml-sp.localhost}
+      PORT: 8080
+      APP_BASE_URL: ${APP_BASE_URL:-http://app.localhost}
+      KEYCLOAK_ISSUER_HOST: ${KEYCLOAK_ISSUER_HOST:-keycloak.localhost}
+      KEYCLOAK_INTERNAL_HOST: keycloak
+      KEYCLOAK_PORT: ${KEYCLOAK_PORT:-8080}
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgres://keycloak:keycloak@postgres:5432/keycloak?sslmode=disable}
+      PROFILE_A_REALM: ${PROFILE_A_REALM:-profile-a}
+      PROFILE_A_CLIENT_ID: ${PROFILE_A_CLIENT_ID:-sso-test-app}
+      PROFILE_A_CLIENT_SECRET: ${PROFILE_A_CLIENT_SECRET:-profile-a-secret}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      WEBAUTHN_RP_ORIGINS: ${WEBAUTHN_RP_ORIGINS:-http://localhost:8081,https://localhost:8443}
+      WEBAUTHN_USER_ID: ${WEBAUTHN_USER_ID:-passkey-user}
+      LOCAL_LOGIN_USERNAME: ${LOCAL_LOGIN_USERNAME:-testuser1}
+      LOCAL_LOGIN_PASSWORD: ${LOCAL_LOGIN_PASSWORD:-password123}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
     ports:
-      - "${SAML_SP_PORT:-8081}:${SAML_SP_PORT:-8081}"
+      - "${APP_HOST_PORT:-8081}:8080"
     networks:
       - sso-network
     depends_on:
+      postgres:
+        condition: service_healthy
       keycloak:
         condition: service_healthy
     healthcheck:
-      # Use the container's actual listen port (8081 by default in this stack).
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/public"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  oidc-rp:
-    build:
-      context: ./oidc-rp
-      dockerfile: Dockerfile
-    container_name: sso-oidc-rp
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: sso-vaultwarden
     environment:
-      PORT: ${OIDC_RP_PORT:-8080}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-sso-test}
-      KEYCLOAK_ISSUER_HOST: ${KEYCLOAK_ISSUER_HOST:-keycloak.localhost}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-oidc-rp-client}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change-me}
-      OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-http://oidc-rp.localhost/callback}
-      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      DOMAIN: ${VAULTWARDEN_DOMAIN:-https://vaultwarden.localhost}
+      SIGNUPS_ALLOWED: ${VAULTWARDEN_SIGNUPS_ALLOWED:-true}
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:-dev-admin-token}
+    volumes:
+      - vaultwarden-data:/data
     ports:
-      - "${OIDC_RP_PORT:-8082}:${OIDC_RP_PORT:-8082}"
+      - "${VAULTWARDEN_PORT:-8083}:80"
     networks:
       - sso-network
-    depends_on:
-      keycloak:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/public"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/alive"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -118,13 +117,13 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8443:8443"
     networks:
       - sso-network
     depends_on:
       - keycloak
-      - saml-sp
-      - oidc-rp
-    # Healthcheck removed: caddy:alpine image does not reliably include wget/curl.
+      - app
+      - vaultwarden
 
   prometheus:
     image: prom/prometheus:latest
@@ -142,8 +141,7 @@ services:
     networks:
       - sso-network
     depends_on:
-      - saml-sp
-      - oidc-rp
+      - app
 
   grafana:
     image: grafana/grafana:latest
@@ -173,4 +171,5 @@ volumes:
   caddy_config:
   prometheus-data:
   grafana-data:
+  vaultwarden-data:
 

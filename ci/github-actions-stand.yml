@@ -1,0 +1,60 @@
+name: SSO Stand
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure local hostnames
+        run: |
+          sudo tee -a /etc/hosts >/dev/null <<'HOSTS'
+          127.0.0.1 keycloak.localhost
+          127.0.0.1 app.localhost
+          127.0.0.1 vaultwarden.localhost
+          HOSTS
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Test Go app
+        working-directory: app
+        run: go test -v ./...
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Start stand
+        run: docker compose up -d --build
+
+      - name: Run Playwright e2e
+        run: npm run test:e2e
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: |
+            results/playwright
+            test-results
+          if-no-files-found: ignore
+
+      - name: Stop stand
+        if: always()
+        run: docker compose down -v

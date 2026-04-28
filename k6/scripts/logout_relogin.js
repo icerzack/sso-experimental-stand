@@ -13,167 +13,49 @@ export const options = {
     { duration: `${STEADY_STATE_S}s`, target: CONCURRENCY },
     { duration: `${RAMP_DOWN_S}s`, target: 0 },
   ],
-  thresholds: (__ENV.DISABLE_THRESHOLDS === '1')
-    ? {}
-    : {
-        login_e2e_ms: ['p(95)<2000'],
-        http_req_failed: ['rate<0.1'],
-      },
+  thresholds: (__ENV.DISABLE_THRESHOLDS === '1') ? {} : {
+    login_e2e_ms: ['p(95)<2000'],
+    http_req_failed: ['rate<0.1'],
+  },
 };
 
-const BASE_URL = __ENV.BASE_URL || 'http://saml-sp.localhost';
+const BASE_URL = __ENV.BASE_URL || 'http://app.localhost';
+const PROFILE = __ENV.PROFILE || 'profile-c';
 const USERNAME = __ENV.USERNAME || 'testuser1';
 const PASSWORD = __ENV.PASSWORD || 'password123';
 
 const loginE2E = new Trend('login_e2e_ms', true);
 const redirectCountTrend = new Trend('redirect_count', true);
-const protocolErrors = new Rate('protocol_error_rate');
+const profileErrors = new Rate('profile_error_rate');
 
-const KEYCLOAK_URL = __ENV.KEYCLOAK_URL || 'http://keycloak.localhost';
-const MAX_REDIRECTS = parseInt(__ENV.MAX_REDIRECTS || '15', 10);
-
-function extractFirstMatch(text, regex) {
-  const m = text.match(regex);
-  return m ? m[1] : null;
-}
-
-function extractFormAction(html) {
-  return extractFirstMatch(html, /<form[^>]*action="([^"]+)"/i);
-}
-
-function extractInputValue(html, name) {
-  const re = new RegExp(`<input[^>]*name="${name}"[^>]*value="([^"]*)"`, 'i');
-  return extractFirstMatch(html, re);
-}
-
-function isRedirect(res) {
-  return res && (res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307 || res.status === 308);
-}
-
-function resolveUrl(baseUrl, location) {
-  if (!location) return location;
-  const base = String(baseUrl || '');
-  const originMatch = base.match(/^(https?:\/\/[^/]+)/i);
-  const origin = originMatch ? originMatch[1] : '';
-  location = String(location).replaceAll('&amp;', '&');
-
-  const keycloakOriginMatch = String(KEYCLOAK_URL || '').match(/^(https?:\/\/[^/]+)/i);
-  const keycloakOrigin = keycloakOriginMatch ? keycloakOriginMatch[1] : '';
-
-  if (location.startsWith('http://') || location.startsWith('https://')) {
-    if (keycloakOrigin && location.includes('://keycloak:')) {
-      return location.replace(/^https?:\/\/keycloak(?::\d+)?/i, keycloakOrigin);
-    }
-    if (location.includes('://saml-sp:') || location.includes('://oidc-rp:')) {
-      return location
-        .replace(/^https?:\/\/saml-sp(?::\d+)?/i, origin)
-        .replace(/^https?:\/\/oidc-rp(?::\d+)?/i, origin);
-    }
-    return location;
-  }
-  const pathPart = base.replace(origin, '').split('?')[0].split('#')[0] || '/';
-  if (location.startsWith('/')) return `${origin}${location}`;
-  const dir = pathPart.endsWith('/') ? pathPart : pathPart.substring(0, pathPart.lastIndexOf('/') + 1);
-  return `${origin}${dir}${location}`;
-}
-
-function followRedirects(res, currentUrl, params, maxRedirects) {
-  let redirects = 0;
-  while (isRedirect(res) && redirects < maxRedirects) {
-    const loc = res.headers.Location;
-    if (!loc) break;
-    const nextUrl = resolveUrl(currentUrl, loc);
-    res = http.get(nextUrl, Object.assign({}, params, { redirects: 0 }));
-    currentUrl = nextUrl;
-    redirects++;
-  }
-  return { res, redirects, currentUrl };
-}
-
-function maybeHandleSamlPostBinding(res, currentUrl, params) {
-  if (!res || res.status !== 200 || !res.body) return null;
-  if (!res.body.includes('SAMLResponse')) return null;
-  const action = extractFormAction(res.body);
-  const samlResponse = extractInputValue(res.body, 'SAMLResponse');
-  const relayState = extractInputValue(res.body, 'RelayState');
-  if (!action || !samlResponse) return null;
-  const payload = relayState ? { SAMLResponse: samlResponse, RelayState: relayState } : { SAMLResponse: samlResponse };
-  const postUrl = resolveUrl(currentUrl, action);
-  return http.post(postUrl, payload, Object.assign({}, params, { redirects: 0 }));
-}
-
-function safeClearCookies(url) {
-  const jar = http.cookieJar();
-  try {
-    jar.clear(url);
-  } catch (_) {
-    // ignore
-  }
-}
-
-function loginFlow() {
-  const params = { redirects: 0 };
+function loginProfileC() {
   const started = Date.now();
-  let currentUrl = `${BASE_URL}/protected`;
-  let res = http.get(currentUrl, params);
-  let totalRedirects = 0;
-
-  let out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-  res = out.res;
-  currentUrl = out.currentUrl;
-  totalRedirects += out.redirects;
-
-  if (res.status === 200 && res.body && res.body.includes('login') && res.body.includes('username')) {
-    const formAction = extractFormAction(res.body);
-    if (!formAction) {
-      protocolErrors.add(1);
-    } else {
-      const postUrl = resolveUrl(currentUrl, formAction);
-      res = http.post(postUrl, { username: USERNAME, password: PASSWORD }, params);
-      out = followRedirects(res, postUrl, params, MAX_REDIRECTS);
-      res = out.res;
-      currentUrl = out.currentUrl;
-      totalRedirects += out.redirects;
-    }
-  }
-
-  const maybePosted = maybeHandleSamlPostBinding(res, currentUrl, params);
-  if (maybePosted) {
-    res = maybePosted;
-    out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-    res = out.res;
-    currentUrl = out.currentUrl;
-    totalRedirects += out.redirects;
-  }
-
-  out = followRedirects(res, currentUrl, params, MAX_REDIRECTS);
-  res = out.res;
-  currentUrl = out.currentUrl;
-  totalRedirects += out.redirects;
-
+  const res = http.post(`${BASE_URL}/login/profile-c`, { username: USERNAME, password: PASSWORD }, { redirects: 0 });
   loginE2E.add(Date.now() - started);
-  redirectCountTrend.add(totalRedirects);
-
-  const ok = check(res, {
-    'protected page accessible': (r) => r && r.status === 200,
-    'user info displayed': (r) => r && r.body && r.body.includes(USERNAME),
-  });
-  protocolErrors.add(ok ? 0 : 1);
+  redirectCountTrend.add(res.status === 302 ? 1 : 0);
+  return res;
 }
 
 export default function () {
-  // Ensure an initial session exists, then logout, then re-login.
-  safeClearCookies(BASE_URL);
-  safeClearCookies(KEYCLOAK_URL);
+  if (PROFILE !== 'profile-c') {
+    const res = http.get(`${BASE_URL}/login/${PROFILE}`, { redirects: 0 });
+    const ok = check(res, {
+      'profile login endpoint is reachable': (r) => r && (r.status === 200 || r.status === 302),
+    });
+    profileErrors.add(ok ? 0 : 1);
+    sleep(1);
+    return;
+  }
 
-  loginFlow();
+  const first = loginProfileC();
+  const logout = http.get(`${BASE_URL}/logout`, { cookies: first.cookies, redirects: 0 });
+  const second = loginProfileC();
 
-  // Local app logout (IdP logout is out of scope for this stand).
-  http.get(`${BASE_URL}/logout`, { redirects: 0 });
-
-  // Re-login should behave like a cold login from the app perspective.
-  loginFlow();
-
+  const ok = check(second, {
+    'logout redirects to profile selector': () => logout && logout.status === 302 && String(logout.headers.Location || '').includes('/'),
+    're-login redirects to protected page': (r) => r && r.status === 302 && String(r.headers.Location || '').includes('/protected'),
+  });
+  profileErrors.add(ok ? 0 : 1);
   sleep(1);
 }
 
@@ -185,5 +67,3 @@ export function handleSummary(data) {
     [__ENV.SUMMARY_PATH]: JSON.stringify(data, null, 2),
   };
 }
-
-

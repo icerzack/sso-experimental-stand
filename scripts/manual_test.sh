@@ -1,106 +1,47 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Manual Test Script for SSO Test Stand
-# Tests SAML and OIDC flows manually
+set -euo pipefail
 
-set -e
+APP_URL="${APP_URL:-http://app.localhost}"
+VAULTWARDEN_URL="${VAULTWARDEN_URL:-http://vaultwarden.localhost}"
 
-SAML_SP_URL="${SAML_SP_URL:-http://saml-sp.localhost}"
-OIDC_RP_URL="${OIDC_RP_URL:-http://oidc-rp.localhost}"
-USERNAME="${USERNAME:-testuser1}"
-PASSWORD="${PASSWORD:-password123}"
-
-echo "=== SSO Manual Test Script ==="
+echo "=== SSO Stand Manual Smoke Test ==="
+echo "App: $APP_URL"
+echo "Vaultwarden: $VAULTWARDEN_URL"
 echo ""
 
-test_saml() {
-    echo "Testing SAML SP..."
-    echo "1. Accessing protected endpoint: ${SAML_SP_URL}/protected"
-    
-    # Use curl with -L to follow redirects and -v for verbose output
-    echo "Redirect chain:"
-    curl -L -v "${SAML_SP_URL}/protected" 2>&1 | grep -E "(< HTTP|< Location|> GET)"
-    
-    echo ""
-    echo "2. Checking if user info is displayed..."
-    response=$(curl -L -s "${SAML_SP_URL}/protected")
-    if echo "$response" | grep -q "$USERNAME"; then
-        echo "✓ User info found in response"
-    else
-        echo "✗ User info not found"
-    fi
-    
-    echo ""
-}
+echo "1. Checking profile selector"
+profiles_page="$(curl -fsS "$APP_URL/")"
+for profile in profile-a profile-b profile-c; do
+  if echo "$profiles_page" | grep -q "data-profile=\"$profile\""; then
+    echo "[ok] $profile is listed"
+  else
+    echo "✗ $profile is missing"
+    exit 1
+  fi
+done
 
-test_oidc() {
-    echo "Testing OIDC RP..."
-    echo "1. Accessing protected endpoint: ${OIDC_RP_URL}/protected"
-    
-    echo "Redirect chain:"
-    curl -L -v "${OIDC_RP_URL}/protected" 2>&1 | grep -E "(< HTTP|< Location|> GET)"
-    
-    echo ""
-    echo "2. Checking for redirect_uri errors..."
-    response=$(curl -L -s "${OIDC_RP_URL}/protected")
-    if echo "$response" | grep -qi "invalid.*redirect.*uri"; then
-        echo "✗ Redirect URI error detected!"
-    else
-        echo "✓ No redirect URI errors"
-    fi
-    
-    echo ""
-    echo "3. Checking if user info is displayed..."
-    if echo "$response" | grep -q "$USERNAME"; then
-        echo "✓ User info found in response"
-    else
-        echo "✗ User info not found"
-    fi
-    
-    echo ""
-}
+echo ""
+echo "2. Checking anonymous protected redirect"
+protected_status="$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/protected")"
+if [[ "$protected_status" == "302" ]]; then
+  echo "[ok] /protected redirects anonymous users"
+else
+  echo "✗ /protected expected 302, got $protected_status"
+  exit 1
+fi
 
-test_logout() {
-    echo "Testing Logout..."
-    
-    # Test SAML logout
-    echo "1. Testing SAML logout..."
-    curl -L -s "${SAML_SP_URL}/logout" > /dev/null
-    response=$(curl -L -s "${SAML_SP_URL}/protected")
-    if echo "$response" | grep -q "login"; then
-        echo "✓ SAML logout successful (redirected to login)"
-    else
-        echo "✗ SAML logout may have failed"
-    fi
-    
-    echo ""
-    
-    # Test OIDC logout
-    echo "2. Testing OIDC logout..."
-    curl -L -s "${OIDC_RP_URL}/logout" > /dev/null
-    response=$(curl -L -s "${OIDC_RP_URL}/protected")
-    if echo "$response" | grep -q "login"; then
-        echo "✓ OIDC logout successful (redirected to login)"
-    else
-        echo "✗ OIDC logout may have failed"
-    fi
-    
-    echo ""
-}
+echo ""
+echo "3. Checking Vaultwarden availability"
+vaultwarden_status="$(curl -s -o /dev/null -w "%{http_code}" "$VAULTWARDEN_URL/alive" || true)"
+if [[ "$vaultwarden_status" == "200" ]]; then
+  echo "[ok] Vaultwarden is alive"
+else
+  echo "[warn] Vaultwarden /alive returned $vaultwarden_status"
+fi
 
-main() {
-    echo "Starting manual tests..."
-    echo ""
-    
-    test_saml
-    test_oidc
-    test_logout
-    
-    echo "=== Test Complete ==="
-    echo ""
-    echo "Note: This script tests basic functionality."
-    echo "For full authentication flow, use a browser and follow redirects manually."
-}
-
-main "$@"
-
+echo ""
+echo "Browser checks:"
+echo "- Profile A: choose Profile A, log in to Keycloak with testuser1/password123."
+echo "- Profile B: choose Profile B and use a passkey/WebAuthn authenticator."
+echo "- Profile C: save testuser1/password123 in Vaultwarden/Bitwarden and fill the app login form."

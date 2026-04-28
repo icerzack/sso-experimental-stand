@@ -1,27 +1,22 @@
 {
   "dashboard": {
-    "title": "SAML vs OIDC Comparison",
-    "tags": ["sso", "saml", "oidc"],
+    "title": "Authentication Profile Comparison",
+    "tags": ["sso", "authentication", "profiles"],
     "timezone": "browser",
     "schemaVersion": 16,
-    "version": 0,
+    "version": 1,
     "refresh": "10s",
     "panels": [
       {
         "id": 1,
-        "title": "Login Duration (SAML vs OIDC)",
+        "title": "Login Duration by Profile",
         "type": "graph",
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
         "targets": [
           {
-            "expr": "histogram_quantile(0.95, rate(sso_login_duration_seconds_bucket{service=\"saml-sp\"}[5m]))",
-            "legendFormat": "SAML p95",
+            "expr": "histogram_quantile(0.95, sum by (le, profile) (rate(sso_login_duration_seconds_bucket{service=\"app\"}[5m])))",
+            "legendFormat": "{{profile}} p95",
             "refId": "A"
-          },
-          {
-            "expr": "histogram_quantile(0.95, rate(sso_login_duration_seconds_bucket{service=\"oidc-rp\"}[5m]))",
-            "legendFormat": "OIDC p95",
-            "refId": "B"
           }
         ],
         "yaxes": [
@@ -31,19 +26,14 @@
       },
       {
         "id": 2,
-        "title": "Error Rate",
+        "title": "Error Rate by Profile",
         "type": "graph",
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
         "targets": [
           {
-            "expr": "rate(sso_login_errors_total{service=\"saml-sp\"}[5m]) / rate(sso_login_attempts_total{service=\"saml-sp\"}[5m]) * 100",
-            "legendFormat": "SAML Error Rate",
+            "expr": "sum by (profile) (rate(sso_login_errors_total{service=\"app\"}[5m])) / sum by (profile) (rate(sso_login_attempts_total{service=\"app\"}[5m])) * 100",
+            "legendFormat": "{{profile}} error rate",
             "refId": "A"
-          },
-          {
-            "expr": "rate(sso_login_errors_total{service=\"oidc-rp\"}[5m]) / rate(sso_login_attempts_total{service=\"oidc-rp\"}[5m]) * 100",
-            "legendFormat": "OIDC Error Rate",
-            "refId": "B"
           }
         ],
         "yaxes": [
@@ -53,19 +43,14 @@
       },
       {
         "id": 3,
-        "title": "Redirect Count",
+        "title": "Redirect Count by Profile",
         "type": "graph",
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
         "targets": [
           {
-            "expr": "histogram_quantile(0.95, rate(sso_redirect_count_bucket{service=\"saml-sp\"}[5m]))",
-            "legendFormat": "SAML p95",
+            "expr": "histogram_quantile(0.95, sum by (le, profile) (rate(sso_redirect_count_bucket{service=\"app\"}[5m])))",
+            "legendFormat": "{{profile}} p95",
             "refId": "A"
-          },
-          {
-            "expr": "histogram_quantile(0.95, rate(sso_redirect_count_bucket{service=\"oidc-rp\"}[5m]))",
-            "legendFormat": "OIDC p95",
-            "refId": "B"
           }
         ],
         "yaxes": [
@@ -75,19 +60,14 @@
       },
       {
         "id": 4,
-        "title": "Active Sessions",
+        "title": "Active Sessions by Profile",
         "type": "graph",
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
         "targets": [
           {
-            "expr": "sso_active_sessions{service=\"saml-sp\"}",
-            "legendFormat": "SAML Sessions",
+            "expr": "sso_active_sessions{service=\"app\"}",
+            "legendFormat": "{{profile}} sessions",
             "refId": "A"
-          },
-          {
-            "expr": "sso_active_sessions{service=\"oidc-rp\"}",
-            "legendFormat": "OIDC Sessions",
-            "refId": "B"
           }
         ],
         "yaxes": [
@@ -98,4 +78,3 @@
     ]
   }
 }
-

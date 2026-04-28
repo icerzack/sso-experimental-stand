@@ -1,0 +1,17 @@
+{
+  "name": "sso-experimental-stand",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:profile-b": "SKIP_VAULTWARDEN_SETUP=1 WEBAUTHN_APP_BASE_URL=http://localhost:8081 playwright test tests/e2e/auth-profiles.spec.js -g \"profile B\" --workers=1",
+    "test:e2e:profile-b:headed": "SKIP_VAULTWARDEN_SETUP=1 WEBAUTHN_APP_BASE_URL=http://localhost:8081 playwright test tests/e2e/auth-profiles.spec.js -g \"profile B\" --workers=1 --headed",
+    "test:e2e:human": "HUMAN_MODE=1 NETWORK_PROFILE=slow4g playwright test tests/e2e/auth-profiles.spec.js",
+    "test:e2e:human:20": "HUMAN_MODE=1 NETWORK_PROFILE=slow4g playwright test tests/e2e/auth-profiles.spec.js --workers=1 --repeat-each=20",
+    "test:e2e:human:30": "HUMAN_MODE=1 NETWORK_PROFILE=slow4g playwright test tests/e2e/auth-profiles.spec.js --workers=1 --repeat-each=30"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0"
+  }
+}

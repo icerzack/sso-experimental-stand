@@ -227,7 +227,7 @@ def docker_stats_avg(path: Path) -> Dict[str, Dict[str, Optional[float]]]:
 class RunRow:
     run_id: str
     timestamp: str
-    protocol: str
+    profile: str
     scenario: str
     concurrency: int
     duration_s: int
@@ -266,7 +266,7 @@ def main() -> int:
         meta = read_json(meta_path)
         k6 = read_json(k6_path)
 
-        protocol = str(meta.get("protocol") or "")
+        profile = str(meta.get("profile") or meta.get("protocol") or "")
         scenario = str(meta.get("scenario") or "")
         rid = str(meta.get("run_id") or run_dir.name)
         repeat_no = safe_int(meta.get("repeat_no")) or 0
@@ -287,19 +287,18 @@ def main() -> int:
         err_rate = extract_k6_value(k6, "http_req_failed", "value")  # k6 uses "value" for http_req_failed
         redirect_avg = extract_k6_value(k6, "redirect_count", "avg")
 
-        # Prefer Prometheus app-side protocol payload sizing when present.
+        # Prefer Prometheus app-side token payload sizing when present.
         token_avg = None
         prom_sum_p = run_dir / "prometheus" / "range" / "sso_protocol_payload_size_bytes_sum.json"
         prom_count_p = run_dir / "prometheus" / "range" / "sso_protocol_payload_size_bytes_count.json"
         if prom_sum_p.exists() and prom_count_p.exists():
             prom_sum = read_json(prom_sum_p)
             prom_count = read_json(prom_count_p)
-            service = "saml-sp" if protocol == "saml" else "oidc-rp"
-            ds, dc = prom_delta_sum_count(prom_sum, prom_count, {"service": service})
+            ds, dc = prom_delta_sum_count(prom_sum, prom_count, {"service": "app", "profile": profile})
             if ds is not None and dc and dc > 0:
                 token_avg = ds / dc
 
-        # Fall back to k6-side signal (mostly meaningful for SAML only).
+        # Fall back to a k6-side signal when an app-side metric is unavailable.
         if token_avg is None:
             token_avg = extract_k6_value(k6, "token_assertion_size_bytes", "avg")
 
@@ -312,8 +311,7 @@ def main() -> int:
         if login_sum_p.exists() and login_count_p.exists():
             login_sum = read_json(login_sum_p)
             login_count = read_json(login_count_p)
-            service = "saml-sp" if protocol == "saml" else "oidc-rp"
-            avg_seconds = prom_avg_from_sum_count(login_sum, login_count, {"service": service})
+            avg_seconds = prom_avg_from_sum_count(login_sum, login_count, {"service": "app", "profile": profile})
             # Only use if we have actual data (delta > 0)
             if avg_seconds is not None and avg_seconds > 0:
                 app_login_duration_avg_ms = avg_seconds * 1000.0  # Convert to ms
@@ -360,7 +358,7 @@ def main() -> int:
         keycloak_cpu = keycloak.get("cpu_perc_avg")
         keycloak_mem = keycloak.get("mem_used_mb_avg")
 
-        app_container = "sso-saml-sp" if protocol == "saml" else "sso-oidc-rp"
+        app_container = "sso-app"
         app = ds_avg.get(app_container) or {}
         app_cpu = app.get("cpu_perc_avg")
         app_mem = app.get("mem_used_mb_avg")
@@ -371,7 +369,7 @@ def main() -> int:
             RunRow(
                 run_id=rid,
                 timestamp=str(ts),
-                protocol=protocol,
+                profile=profile,
                 scenario=scenario,
                 concurrency=concurrency,
                 duration_s=duration_s,

@@ -1,4 +1,4 @@
-protocols: [saml, oidc]
+profiles: [profile-a, profile-b, profile-c]
 scenarios: [cold, warm_idp, session_reuse, logout_relogin]
 # Extended dataset profile (aim: ~2-3 hours total):
 # - 4 load points: low / medium / high / very high
@@ -16,8 +16,8 @@ seed: 12345
 
 # Endpoints
 keycloak_url: http://keycloak.localhost
-saml_sp_base_url: http://saml-sp.localhost
-oidc_rp_base_url: http://oidc-rp.localhost
+app_base_url: http://app.localhost
+vaultwarden_url: http://vaultwarden.localhost
 
 # Observability
 prometheus_url: http://localhost:9090
@@ -26,5 +26,6 @@ prometheus_step: 5s
 # Credentials (defaults match README)
 username: testuser1
 password: password123
+passkey_username: passkey-user
 
 

@@ -1,24 +1,30 @@
-{
-    auto_https off
-}
-
 :80 {
     @keycloak host keycloak.localhost
     handle @keycloak {
         reverse_proxy keycloak:8080
     }
 
-    @saml_sp host saml-sp.localhost
-    handle @saml_sp {
-        reverse_proxy saml-sp:8081
+    @app host app.localhost
+    handle @app {
+        reverse_proxy app:8080
     }
 
-    @oidc_rp host oidc-rp.localhost
-    handle @oidc_rp {
-        reverse_proxy oidc-rp:8082
+    @vaultwarden host vaultwarden.localhost
+    handle @vaultwarden {
+        reverse_proxy vaultwarden:80
     }
 
     handle {
         respond "Not found" 404
     }
+}
+
+localhost:8443 {
+    tls internal
+    reverse_proxy app:8080
+}
+
+vaultwarden.localhost:443 {
+    tls internal
+    reverse_proxy vaultwarden:80
 }
