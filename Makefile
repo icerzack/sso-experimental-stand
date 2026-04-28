@@ -103,10 +103,13 @@ logs-c:
 APP_A ?= http://app-a-v.local:8081
 KC_A  ?= http://keycloak.local:8080
 APP_A_ALLOWED ?= app-a-v.local
+KC_REALM ?= profile-a-vulnerable
+KC_CLIENT_ID ?= sso-test-app
+KC_CLIENT_SECRET ?= testpass123
 
 attack-a:
-	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(KC_A) /kc         || true
-	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(KC_A)             || true
+	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(KC_A) /kc testuser1 $(KC_REALM) $(KC_CLIENT_ID) $(KC_CLIENT_SECRET) || true
+	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(KC_A) wordlists/top100_passwords.txt $(KC_REALM) $(KC_CLIENT_ID) $(KC_CLIENT_SECRET) || true
 	@bash    $(ATTACK_DIR)/A7_redirect_uri.sh        $(KC_A)            || true
 	@bash    $(ATTACK_DIR)/A8_csrf_state.sh          $(APP_A) $(KC_A)   || true
 	@bash    $(ATTACK_DIR)/A9_open_redirect.sh       $(APP_A) $(APP_A_ALLOWED) || true

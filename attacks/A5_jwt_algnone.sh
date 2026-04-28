@@ -22,7 +22,22 @@ BASE_URL="${1:?Usage: $0 <base_url> <id_token>}"
 TOKEN="${2:-}"
 
 if [[ -z "$TOKEN" ]]; then
-  echo "[A5] SKIPPED — id_token is required for alg=none replay test"
+  echo "[A5] No id_token provided — trying automatic token retrieval..."
+  REALM="profile-a-vulnerable"
+  CLIENT_SECRET="testpass123"
+  if [[ "$BASE_URL" == *"app-a-h."* ]]; then
+    REALM="profile-a-hardened"
+    CLIENT_SECRET="Str0ngCl!entS3cr3t_changeme"
+  fi
+  AUTH_JSON=$(cat <<EOF
+{"app_url":"$BASE_URL","kc_url":"${KC_A:-http://keycloak.local:8080}","realm":"$REALM","client_id":"sso-test-app","client_secret":"$CLIENT_SECRET","username":"testuser1","password":"password123"}
+EOF
+)
+  TOKEN=$(python3 "$SCRIPT_DIR/auto_auth.py" id_token "$AUTH_JSON" 2>/dev/null || true)
+fi
+
+if [[ -z "$TOKEN" ]]; then
+  echo "[A5] SKIPPED — unable to obtain id_token automatically"
   exit 0
 fi
 

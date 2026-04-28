@@ -23,7 +23,22 @@ BASE_URL="${1:?Usage: $0 <base_url> <session_cookie>}"
 SESSION="${2:-}"
 
 if [[ -z "$SESSION" ]]; then
-  echo "[A6] SKIPPED — session cookie is required for hijack replay test"
+  echo "[A6] No session cookie provided — trying automatic login flow..."
+  REALM="profile-a-vulnerable"
+  CLIENT_SECRET="testpass123"
+  if [[ "$BASE_URL" == *"app-a-h."* ]]; then
+    REALM="profile-a-hardened"
+    CLIENT_SECRET="Str0ngCl!entS3cr3t_changeme"
+  fi
+  AUTH_JSON=$(cat <<EOF
+{"app_url":"$BASE_URL","kc_url":"${KC_A:-http://keycloak.local:8080}","realm":"$REALM","client_id":"sso-test-app","client_secret":"$CLIENT_SECRET","username":"${PROFILE_C_EMAIL:-testuser@example.com}","password":"${PROFILE_C_PASSWORD:-password123}"}
+EOF
+)
+  SESSION=$(python3 "$SCRIPT_DIR/auto_auth.py" sess "$AUTH_JSON" 2>/dev/null || true)
+fi
+
+if [[ -z "$SESSION" ]]; then
+  echo "[A6] SKIPPED — unable to obtain a valid session cookie automatically"
   exit 0
 fi
 

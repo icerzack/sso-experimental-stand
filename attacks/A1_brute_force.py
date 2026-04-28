@@ -21,6 +21,7 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
+import ssl
 from typing import Tuple
 
 MAX_ATTEMPTS = 20
@@ -32,6 +33,9 @@ CREDENTIALS  = [("testuser@example.com", p) for p in [
 ]]
 
 
+SSL_CTX = ssl._create_unverified_context()
+
+
 def attempt_form(base_url: str, path: str, email: str, password: str) -> Tuple[int, float]:
     url  = base_url.rstrip("/") + path
     data = urllib.parse.urlencode({"email": email, "password": password}).encode()
@@ -40,7 +44,7 @@ def attempt_form(base_url: str, path: str, email: str, password: str) -> Tuple[i
     req.add_header("User-Agent",   "sso-testbed-attacker/1.0")
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CTX) as resp:
             return resp.status, time.monotonic() - t0
     except urllib.error.HTTPError as e:
         return e.code, time.monotonic() - t0
@@ -49,8 +53,7 @@ def attempt_form(base_url: str, path: str, email: str, password: str) -> Tuple[i
         return 0, time.monotonic() - t0
 
 
-def attempt_keycloak(kc_url: str, realm: str, client_id: str, client_secret: str,
-                     username: str, password: str) -> Tuple[int, float]:
+def attempt_keycloak(kc_url: str, realm: str, client_id: str, client_secret: str, username: str, password: str) -> Tuple[int, float]:
     token_url = f"{kc_url.rstrip('/')}/realms/{realm}/protocol/openid-connect/token"
     data = urllib.parse.urlencode({
         "grant_type": "password",
@@ -64,7 +67,7 @@ def attempt_keycloak(kc_url: str, realm: str, client_id: str, client_secret: str
     req.add_header("User-Agent", "sso-testbed-attacker/1.0")
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CTX) as resp:
             return resp.status, time.monotonic() - t0
     except urllib.error.HTTPError as e:
         return e.code, time.monotonic() - t0
@@ -81,6 +84,9 @@ def main():
     base_url = sys.argv[1]
     path     = sys.argv[2] if len(sys.argv) > 2 else ""
     username = sys.argv[3] if len(sys.argv) > 3 else "testuser@example.com"
+    realm = sys.argv[4] if len(sys.argv) > 4 else "profile-a-vulnerable"
+    client_id = sys.argv[5] if len(sys.argv) > 5 else "sso-test-app"
+    client_secret = sys.argv[6] if len(sys.argv) > 6 else "testpass123"
 
     # Detect target type
     is_keycloak = "keycloak" in base_url or path == "/kc"
@@ -94,13 +100,6 @@ def main():
         return
 
     if is_keycloak:
-        realm = "profile-a-vulnerable"
-        client_id = "sso-test-app"
-        client_secret = "testpass123"
-        if "hard" in base_url:
-            realm = "profile-a-hardened"
-            client_secret = "Str0ngCl!entS3cr3t_changeme"
-
         print(f"[A1] Brute-force via Keycloak ROPC: {base_url}")
         print(f"     Realm: {realm}, Client: {client_id}, User: {username}")
         print(f"     Sending {MAX_ATTEMPTS} failed login attempts …\n")

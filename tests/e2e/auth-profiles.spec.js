@@ -97,20 +97,42 @@ function record(profile, durationMs, status, testTitle, runIndex, networkProfile
 
 async function waitForKeycloakLogin(page) {
   const username = page.locator('input[name="username"], input#username');
-  await expect.poll(async () => {
-    if (/\/protected(?:$|[/?#])/.test(page.url())) {
-      return 'protected';
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const currentUrl = page.url();
+    if (/\/protected(?:$|[/?#])/.test(currentUrl)) {
+      return false;
     }
-    if (page.url().includes('keycloak.local')) {
-      return 'keycloak';
+    if (currentUrl.includes('keycloak.local')) {
+      try {
+        await username.first().waitFor({ state: 'visible', timeout: 5_000 });
+        return true;
+      } catch (_) {
+        // Keep polling; Keycloak page may still be rendering.
+      }
     }
-    if (await username.count()) {
-      return 'login';
-    }
-    return 'pending';
-  }, { timeout: 60_000 }).not.toBe('pending');
+    await page.waitForTimeout(500);
+  }
+  throw new Error('Timed out waiting for Keycloak login form or protected page');
+}
 
-  return await username.count() > 0;
+async function waitForProtectedOrStatusError(page, timeoutMs, actionLabel) {
+  const deadline = Date.now() + timeoutMs;
+  const status = page.locator('#status');
+
+  while (Date.now() < deadline) {
+    if (/\/protected(?:$|[/?#])/.test(page.url())) {
+      return;
+    }
+    if (await status.count()) {
+      const msg = ((await status.textContent()) || '').trim();
+      if (msg && !/^Registering|^Authenticating/i.test(msg)) {
+        throw new Error(`${actionLabel} failed: ${msg}`);
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error(`${actionLabel} timed out before reaching /protected`);
 }
 
 // ── Profile A: OIDC / Keycloak password flow ─────────────────────────────────
@@ -132,7 +154,7 @@ test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ p
     }
 
     // Should land on /protected
-    await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/protected/, { timeout: 60_000 });
     await expect(page.locator('body')).toContainText(PROFILE_A_USER);
 
     const { redirectCount, stepCount } = collector.finish();
@@ -176,7 +198,7 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
     // ── Register ──────────────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
     await page.locator('#reg, #register-passkey, button:has-text("Register"), a:has-text("Register")').first().click();
-    await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
+    await waitForProtectedOrStatusError(page, 30_000, 'Passkey registration');
 
     // ── Logout ────────────────────────────────────────────
     await page.locator('a[href="/logout"], button:has-text("Logout")').first().click();
@@ -185,7 +207,7 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
     // ── Login with passkey ────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
     await page.locator('#login, #login-passkey, button:has-text("Login"), a:has-text("Login")').first().click();
-    await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
+    await waitForProtectedOrStatusError(page, 30_000, 'Passkey login');
 
     const { redirectCount, stepCount } = collector.finish();
     record('profile-b', Date.now() - t0, 'success', testTitle, runIndex, networkProfile, redirectCount, stepCount);

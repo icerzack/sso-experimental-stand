@@ -36,7 +36,15 @@ RESULTS=()
 
 probe() {
   local label="$1" url="$2"
-  local code
+  local code headers loc
+  headers=$(rcurl -s -D - -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null || true)
+  code=$(echo "$headers" | tail -1)
+  loc=$(echo "$headers" | grep -i "^location:" | head -1 | tr -d '\r' | sed 's/^[Ll]ocation: //')
+  if [[ -n "$loc" && "$loc" == *"keycloak.local"* ]]; then
+    echo "  $label → HTTP $code (redirect to Keycloak: $loc)" >&2
+    echo "${code}|KEYCLOAK_REDIRECT"
+    return
+  fi
   if code=$(rcurl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null); then
     :
   else
@@ -89,7 +97,10 @@ echo
 
 classify() {
   local label="$1" code_before="$2" code_down="$3"
-  if [[ "$code_down" =~ ^(000|502|503|504)$ ]]; then
+  if [[ "$code_down" == *"KEYCLOAK_REDIRECT"* ]]; then
+    echo "  $label → SPOF (redirected to unavailable Keycloak while IdP is down)"
+    RESULTS+=("$label:SPOF")
+  elif [[ "$code_down" =~ ^(000|502|503|504)$ ]]; then
     echo "  $label → SPOF (HTTP $code_down while IdP is down)"
     RESULTS+=("$label:SPOF")
   elif [[ "$code_down" =~ ^[23] ]]; then

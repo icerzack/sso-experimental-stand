@@ -39,8 +39,8 @@ BODY1=$(cat /tmp/c2_t1.txt | tail -1)
 echo "           → HTTP $STATUS1"
 
 if [[ "$STATUS1" == "400" ]] || echo "$BODY1" | grep -qi "invalid state\|missing state"; then
-  echo "           VULNERABLE — callback reached token-exchange path without state validation (HTTP $STATUS1)"
-  RESULTS+=("T1:VULNERABLE")
+  echo "           PROTECTED  — callback rejected without valid state (HTTP $STATUS1)"
+  RESULTS+=("T1:PROTECTED")
 else
   echo "           VULNERABLE — callback accepted request without state (HTTP $STATUS1)"
   RESULTS+=("T1:VULNERABLE")
@@ -54,10 +54,10 @@ STATUS2=$(rcurl -si -o /tmp/c2_t2.txt -w "%{http_code}" \
 echo "           → HTTP $STATUS2"
 
 if [[ "$STATUS2" == "400" ]] || grep -qi "invalid state" /tmp/c2_t2.txt 2>/dev/null; then
-  echo "           VULNERABLE — predictable state reached token-exchange path (state not validated)"
-  RESULTS+=("T2:VULNERABLE")
+  echo "           PROTECTED  — predictable state rejected"
+  RESULTS+=("T2:PROTECTED")
 else
-  echo "           VULNERABLE — predictable state reached token-exchange path"
+  echo "           VULNERABLE — predictable state accepted"
   RESULTS+=("T2:VULNERABLE")
 fi
 echo

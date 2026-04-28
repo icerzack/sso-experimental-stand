@@ -147,13 +147,13 @@ jobs:
               a-vuln)
                 make up-a-vuln || true
                 sleep 10
-                make attack-a KC_A=http://keycloak.local:8080 APP_A=http://app-a-v.local:8081 | tee "results/raw/${variant}.txt" || true
+                make attack-a KC_A=http://keycloak.local:8080 APP_A=http://app-a-v.local:8081 KC_REALM=profile-a-vulnerable KC_CLIENT_SECRET=testpass123 | tee "results/raw/${variant}.txt" || true
                 make down-a || true
                 ;;
               a-hard)
                 make up-a-hard || true
                 sleep 10
-                make attack-a KC_A=http://keycloak.local:8080 APP_A=https://app-a-h.local APP_A_ALLOWED=app-a-h.local | tee "results/raw/${variant}.txt" || true
+                make attack-a KC_A=http://keycloak.local:8080 APP_A=https://app-a-h.local APP_A_ALLOWED=app-a-h.local KC_REALM=profile-a-hardened KC_CLIENT_SECRET='Str0ngCl!entS3cr3t_changeme' | tee "results/raw/${variant}.txt" || true
                 make down-a || true
                 ;;
               b-vuln)
