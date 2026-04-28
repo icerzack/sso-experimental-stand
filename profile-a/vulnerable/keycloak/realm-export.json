@@ -1,22 +1,21 @@
 {
   "realm": "profile-a-vulnerable",
   "enabled": true,
-  "displayName": "Profile A — Vulnerable (Keycloak OIDC)",
+  "displayName": "Profile A \u2014 Vulnerable (Keycloak OIDC)",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "sslRequired": "none",
   "browserFlow": "browser",
-  "requiredCredentials": ["password"],
-
+  "requiredCredentials": [
+    "password"
+  ],
   "bruteForceProtected": false,
-
   "accessTokenLifespan": 3600,
   "accessTokenLifespanForImplicitFlow": 900,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
   "offlineSessionIdleTimeout": 2592000,
   "offlineSessionMaxLifespanEnabled": false,
-
   "users": [
     {
       "username": "testuser",
@@ -32,10 +31,11 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["user"]
+      "realmRoles": [
+        "user"
+      ]
     }
   ],
-
   "roles": {
     "realm": [
       {
@@ -44,7 +44,6 @@
       }
     ]
   },
-
   "clients": [
     {
       "clientId": "sso-test-app",
@@ -52,13 +51,17 @@
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
       "secret": "testpass123",
-      "redirectUris": ["*"],
-      "webOrigins": ["*"],
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ],
       "protocol": "openid-connect",
       "publicClient": false,
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": true,
       "attributes": {

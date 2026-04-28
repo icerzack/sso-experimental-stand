@@ -119,16 +119,16 @@ make down
 ## Running Attack Scripts
 
 ```bash
-# All attacks against whichever Profile A variant is running
+# Demo attack pack against whichever Profile A variant is running
 make attack-a
 
 # Override target URL for the hardened variant
 APP_A=https://app-a-h.local KC_A=http://keycloak.local:8080 APP_A_ALLOWED=app-a-h.local make attack-a
 
-# Profile B attacks
+# Profile B demo attack pack
 make attack-b
 
-# Profile C attacks
+# Profile C demo attack pack
 make attack-c
 
 # Everything
@@ -152,9 +152,9 @@ SPOF = single point of failure observed
 | A1  | `A1_brute_force.py`         | Brute-force login                                   | VULN   | PROT   | VULN   | PROT   | VULN   | PROT   |
 | A2  | `A2_credential_stuffing.py` | Credential stuffing                                 | VULN   | PROT   | N/A    | N/A    | VULN   | PROT   |
 | A3  | `A3_phishing_check.py`      | WebAuthn origin-spoof phishing                      | N/A    | N/A    | PROT   | PROT   | N/A    | N/A    |
-| A4  | `A4_token_replay.sh`        | Session replay after logout                         | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
-| A5  | `A5_jwt_algnone.sh`         | JWT `alg=none` (unsigned token)                     | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
-| A6  | `A6_session_hijack.sh`      | Cookie flag audit + UA replay                       | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
+| A4  | `A4_token_replay.sh`        | Session replay after logout (manual token step)     | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
+| A5  | `A5_jwt_algnone.sh`         | JWT `alg=none` (unsigned token, manual token step)  | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
+| A6  | `A6_session_hijack.sh`      | Cookie flag audit + UA replay (manual cookie step)  | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
 | A7  | `A7_redirect_uri.sh`        | Open redirect via `redirect_uri`                    | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
 | A8  | `A8_csrf_state.sh`          | CSRF — missing `state` + PKCE                       | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
 | A9  | `A9_open_redirect.sh`       | Open redirect — `strings.Contains` domain confusion | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |

@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 BASE_URL="${1:?Usage: $0 <base_url> <id_token>}"
 TOKEN="${2:-}"
 
@@ -48,7 +51,7 @@ echo "      ${FORGED_TOKEN:0:80}…"
 echo
 
 # Send forged token in Authorization header
-STATUS=$(curl -s -o /tmp/b2_response.txt -w "%{http_code}" \
+STATUS=$(rcurl -s -o /tmp/b2_response.txt -w "%{http_code}" \
   -H "Authorization: Bearer $FORGED_TOKEN" \
   "${BASE_URL%/}/protected")
 

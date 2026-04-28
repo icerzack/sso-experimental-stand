@@ -21,6 +21,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 if [[ $# -eq 0 ]]; then
   URLS=(
     "http://app-a-v.local:8081"
@@ -48,8 +51,8 @@ echo
 
 for URL in "${URLS[@]}"; do
   echo "  URL: $URL"
-  RAW=$(curl -sk -o /dev/null -D - --max-time 10 "$URL" 2>/dev/null || \
-        curl -s  -o /dev/null -D - --max-time 10 "$URL" 2>/dev/null || true)
+  RAW=$(rcurl -sk -o /dev/null -D - --max-time 10 "$URL" 2>/dev/null || \
+        rcurl -s  -o /dev/null -D - --max-time 10 "$URL" 2>/dev/null || true)
 
   if [[ -z "$RAW" ]]; then
     echo "    ERROR — could not connect (is the service running?)"
@@ -83,8 +86,6 @@ echo "  Missing          : $TOTAL_MISSING"
 echo
 if [[ "$TOTAL_MISSING" -eq 0 ]]; then
   echo "PROTECTED  — all security headers present on all tested URLs"
-elif [[ "$TOTAL_MISSING" -lt "$TOTAL_PRESENT" ]]; then
-  echo "PARTIAL    — some headers missing (see above)"
 else
   echo "VULNERABLE — most security headers are absent"
 fi

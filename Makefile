@@ -105,8 +105,8 @@ KC_A  ?= http://keycloak.local:8080
 APP_A_ALLOWED ?= app-a-v.local
 
 attack-a:
-	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(APP_A) /login     || true
-	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(APP_A)           || true
+	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(KC_A) /kc         || true
+	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(KC_A)             || true
 	@bash    $(ATTACK_DIR)/A7_redirect_uri.sh        $(KC_A)            || true
 	@bash    $(ATTACK_DIR)/A8_csrf_state.sh          $(APP_A) $(KC_A)   || true
 	@bash    $(ATTACK_DIR)/A9_open_redirect.sh       $(APP_A) $(APP_A_ALLOWED) || true

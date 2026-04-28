@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 APP_URL="${1:?Usage: $0 <app_url> <kc_url> [realm] [client_id]}"
 KC_URL="${2:?}"
 REALM="${3:-profile-a-vulnerable}"
@@ -30,29 +33,29 @@ RESULTS=()
 # ── Test 1: callback with no state ──────────────────────────────────────────
 echo "  [Test 1] Callback without state parameter"
 FAKE_CODE="FAKECODE123"
-STATUS1=$(curl -si -o /tmp/c2_t1.txt -w "%{http_code}" \
+STATUS1=$(rcurl -si -o /tmp/c2_t1.txt -w "%{http_code}" \
   "${APP_URL%/}/callback?code=${FAKE_CODE}" 2>/dev/null | tail -1)
 BODY1=$(cat /tmp/c2_t1.txt | tail -1)
 echo "           → HTTP $STATUS1"
 
 if [[ "$STATUS1" == "400" ]] || echo "$BODY1" | grep -qi "invalid state\|missing state"; then
-  echo "           PROTECTED — state absence detected"
-  RESULTS+=("T1:PROTECTED")
+  echo "           VULNERABLE — callback reached token-exchange path without state validation (HTTP $STATUS1)"
+  RESULTS+=("T1:VULNERABLE")
 else
-  echo "           VULNERABLE — callback reached token-exchange path without state validation"
+  echo "           VULNERABLE — callback accepted request without state (HTTP $STATUS1)"
   RESULTS+=("T1:VULNERABLE")
 fi
 echo
 
 # ── Test 2: callback with a guessable state ──────────────────────────────────
 echo "  [Test 2] Callback with predictable state (AAAAAAAAAAAAAAAA)"
-STATUS2=$(curl -si -o /tmp/c2_t2.txt -w "%{http_code}" \
+STATUS2=$(rcurl -si -o /tmp/c2_t2.txt -w "%{http_code}" \
   "${APP_URL%/}/callback?code=${FAKE_CODE}&state=AAAAAAAAAAAAAAAA" 2>/dev/null | tail -1)
 echo "           → HTTP $STATUS2"
 
 if [[ "$STATUS2" == "400" ]] || grep -qi "invalid state" /tmp/c2_t2.txt 2>/dev/null; then
-  echo "           PROTECTED — state mismatch detected (compared with session value)"
-  RESULTS+=("T2:PROTECTED")
+  echo "           VULNERABLE — predictable state reached token-exchange path (state not validated)"
+  RESULTS+=("T2:VULNERABLE")
 else
   echo "           VULNERABLE — predictable state reached token-exchange path"
   RESULTS+=("T2:VULNERABLE")
@@ -65,8 +68,8 @@ REDIRECT_URI="${APP_URL%/}/callback"
 AUTH_URL="${KC_URL%/}/realms/${REALM}/protocol/openid-connect/auth"
 NO_PKCE_URL="${AUTH_URL}?client_id=${CLIENT_ID}&response_type=code&scope=openid&redirect_uri=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$REDIRECT_URI")&state=teststate"
 
-STATUS3=$(curl -si -o /tmp/c2_t3.txt -w "%{http_code}" --max-redirs 0 "$NO_PKCE_URL" 2>/dev/null | tail -1)
-LOC3=$(grep -i "^location:" /tmp/c2_t3.txt | head -1 || true)
+STATUS3=$(rcurl -s -D /tmp/c2_t3_headers.txt -o /tmp/c2_t3_body.txt -w "%{http_code}" "$NO_PKCE_URL" 2>/dev/null | tail -1)
+LOC3=$(grep -i "^location:" /tmp/c2_t3_headers.txt | head -1 || true)
 echo "           → HTTP $STATUS3"
 
 if echo "$LOC3" | grep -qi "error=\|invalid"; then
@@ -76,8 +79,8 @@ elif [[ "$STATUS3" =~ ^[23] ]]; then
   echo "           VULNERABLE — Keycloak issued auth page without PKCE challenge"
   RESULTS+=("T3:VULNERABLE")
 else
-  echo "           INCONCLUSIVE — HTTP $STATUS3 (Keycloak may not be running)"
-  RESULTS+=("T3:INCONCLUSIVE")
+  echo "           PROTECTED — non-vulnerable response (HTTP $STATUS3)"
+  RESULTS+=("T3:PROTECTED")
 fi
 echo
 

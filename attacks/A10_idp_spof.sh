@@ -15,18 +15,21 @@
 #
 # Result:
 #   SPOF      — profile returned 5xx / connection refused when IdP is down
-#   RESILIENT — profile served a response without the IdP (degraded mode)
+#   PROTECTED  — profile served a response without the IdP (degraded mode)
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 APP_A="${1:-http://app-a-v.local:8081}"
-APP_B="${2:-http://app-b-v.local:8082}"
+APP_B="${2:-}"
 KC_CONTAINER="${3:-profile-a-vuln-keycloak}"
 
 echo "[A10] IdP Single-Point-of-Failure test"
 echo "     Keycloak container: ${KC_CONTAINER:-not-detected}"
 echo "     Profile A:          $APP_A"
-echo "     Profile B:          $APP_B"
+echo "     Profile B:          ${APP_B:-not-set}"
 echo
 
 RESULTS=()
@@ -34,7 +37,7 @@ RESULTS=()
 probe() {
   local label="$1" url="$2"
   local code
-  if code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null); then
+  if code=$(rcurl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "$url" 2>/dev/null); then
     :
   else
     code="000"
@@ -57,7 +60,10 @@ KC_CONTAINER="$(detect_keycloak_container "$KC_CONTAINER")"
 # ── Baseline: verify apps respond before stopping IdP ───────────────────────
 echo "  [Phase 1] Baseline — IdP running"
 code_a_before=$(probe "Profile A /login (before)" "${APP_A%/}/login")
-code_b_before=$(probe "Profile B /        (before)" "${APP_B%/}/")
+code_b_before=""
+if [[ -n "$APP_B" ]]; then
+  code_b_before=$(probe "Profile B /        (before)" "${APP_B%/}/")
+fi
 echo
 
 # ── Stop Keycloak ────────────────────────────────────────────────────────────
@@ -75,7 +81,10 @@ echo
 # ── Test while IdP is down ───────────────────────────────────────────────────
 echo "  [Phase 3] Probing apps with IdP down"
 code_a_down=$(probe "Profile A /login (IdP down)" "${APP_A%/}/login")
-code_b_down=$(probe "Profile B /       (IdP down)" "${APP_B%/}/")
+code_b_down=""
+if [[ -n "$APP_B" ]]; then
+  code_b_down=$(probe "Profile B /       (IdP down)" "${APP_B%/}/")
+fi
 echo
 
 classify() {
@@ -84,8 +93,8 @@ classify() {
     echo "  $label → SPOF (HTTP $code_down while IdP is down)"
     RESULTS+=("$label:SPOF")
   elif [[ "$code_down" =~ ^[23] ]]; then
-    echo "  $label → RESILIENT (HTTP $code_down — served without IdP)"
-    RESULTS+=("$label:RESILIENT")
+    echo "  $label → PROTECTED (HTTP $code_down — served without IdP)"
+    RESULTS+=("$label:PROTECTED")
   else
     echo "  $label → SPOF (HTTP $code_down)"
     RESULTS+=("$label:SPOF")
@@ -93,7 +102,9 @@ classify() {
 }
 
 classify "ProfileA" "$code_a_before" "$code_a_down"
-classify "ProfileB" "$code_b_before" "$code_b_down"
+if [[ -n "$APP_B" ]]; then
+  classify "ProfileB" "$code_b_before" "$code_b_down"
+fi
 echo
 
 # ── Restart Keycloak ─────────────────────────────────────────────────────────
@@ -114,5 +125,5 @@ for r in "${RESULTS[@]}"; do [[ "$r" == *SPOF* ]] && ANY_SPOF=true; done
 if $ANY_SPOF; then
   echo "SPOF DETECTED — one or more profiles became unavailable when the IdP stopped"
 else
-  echo "RESILIENT     — all profiles handled IdP downtime gracefully"
+  echo "PROTECTED  — profiles handled IdP downtime gracefully"
 fi

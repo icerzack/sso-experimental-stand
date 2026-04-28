@@ -106,13 +106,13 @@ func main() {
 
 		token, err := oauth2Cfg.Exchange(oidc.ClientContext(r.Context(), httpClient), code)
 		if err != nil {
-			http.Error(w, "token exchange failed: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "token exchange failed: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		rawID, _ := token.Extra("id_token").(string)
 		idToken, err := idTokenVerifier.Verify(r.Context(), rawID)
 		if err != nil {
-			http.Error(w, "token verification failed: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "token verification failed: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		var claims map[string]interface{}

@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 BASE_URL="${1:?Usage: $0 <base_url> <session_cookie>}"
 SESSION="${2:-}"
 
@@ -33,7 +36,7 @@ echo "     Session: ${SESSION:0:20}…"
 echo
 
 # Step 1: verify session is valid before logout
-STATUS_BEFORE=$(curl -s -o /dev/null -w "%{http_code}" \
+STATUS_BEFORE=$(rcurl -s -o /dev/null -w "%{http_code}" \
   --cookie "sess=$SESSION" "$PROTECTED")
 echo "  [1] /protected before logout → HTTP $STATUS_BEFORE"
 
@@ -44,12 +47,12 @@ if [[ "$STATUS_BEFORE" != "200" ]]; then
 fi
 
 # Step 2: perform logout
-STATUS_LOGOUT=$(curl -s -o /dev/null -w "%{http_code}" \
+STATUS_LOGOUT=$(rcurl -s -o /dev/null -w "%{http_code}" \
   -X POST --cookie "sess=$SESSION" "$LOGOUT")
 echo "  [2] POST /logout             → HTTP $STATUS_LOGOUT"
 
 # Step 3: replay the old session
-STATUS_AFTER=$(curl -s -o /dev/null -w "%{http_code}" \
+STATUS_AFTER=$(rcurl -s -o /dev/null -w "%{http_code}" \
   --cookie "sess=$SESSION" "$PROTECTED")
 echo "  [3] /protected after logout  → HTTP $STATUS_AFTER"
 

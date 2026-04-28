@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 A3 — Phishing / Origin Spoofing Check (WebAuthn)
 OWASP ASVS v4.2 § 2.8.4 — Verify phishing-resistant MFA is used.

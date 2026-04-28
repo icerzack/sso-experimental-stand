@@ -15,10 +15,13 @@
 #   bash A7_redirect_uri.sh http://keycloak.local:8080 profile-a-hardened   sso-test-app
 #
 # Result:
-#   VULNERABLE — Keycloak redirected to the evil URI (auth code exfiltrated)
-#   PROTECTED  — Keycloak returned error=invalid_redirect_uri
+#   VULNERABLE — invalid redirect_uri is accepted (redirects or login page shown)
+#   PROTECTED  — Keycloak rejects invalid redirect_uri before auth
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
 
 KC_URL="${1:?Usage: $0 <keycloak_base_url> [realm] [client_id]}"
 REALM="${2:-profile-a-vulnerable}"
@@ -43,7 +46,7 @@ echo "      ${FULL_URL:0:120}…"
 echo
 
 # Follow redirects and capture the final Location header
-RESPONSE=$(curl -si --max-redirs 5 "$FULL_URL" 2>/dev/null || true)
+RESPONSE=$(rcurl -si --max-redirs 5 "$FULL_URL" 2>/dev/null || true)
 LOCATION=$(echo "$RESPONSE" | grep -i "^location:" | tail -1 || true)
 HTTP_STATUS=$(echo "$RESPONSE" | head -1 | awk '{print $2}' || true)
 
@@ -53,14 +56,16 @@ if [[ -n "$LOCATION" ]]; then
 fi
 
 ERROR_PARAM=$(echo "$LOCATION" | grep -o "error=[^&]*" || true)
+BODY=$(echo "$RESPONSE" | sed -n '/^\r$/,$p')
 
 echo
 
 if echo "$LOCATION" | grep -q "evil.example.com"; then
   echo "VULNERABLE — Keycloak redirected to the attacker's URI"
-  echo "             Authorization code is now in the attacker's hands."
-elif [[ -n "$ERROR_PARAM" ]]; then
+elif [[ -n "$ERROR_PARAM" ]] || echo "$BODY" | grep -qi "invalid_redirect_uri"; then
   echo "PROTECTED  — Keycloak rejected the redirect ($ERROR_PARAM)"
+elif [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "302" ]]; then
+  echo "VULNERABLE — invalid redirect_uri was accepted (no invalid_redirect_uri error)"
 else
-  echo "PROTECTED  — No redirect to evil URI observed (HTTP $HTTP_STATUS)"
+  echo "PROTECTED  — invalid redirect_uri appears rejected (HTTP $HTTP_STATUS)"
 fi

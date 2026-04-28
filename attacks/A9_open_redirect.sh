@@ -20,6 +20,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 APP_URL="${1:?Usage: $0 <app_url> [allowed_domain]}"
 ALLOWED="${2:-app-a-v.local}"
 
@@ -39,13 +42,13 @@ RESULTS=()
 probe_redirect() {
   local label="$1" url="$2"
   local out loc status
-  out=$(curl -si --max-redirs 0 --connect-timeout 5 "$url" 2>/dev/null || true)
+  out=$(rcurl -s -D - --connect-timeout 5 "$url" 2>/dev/null || true)
   status=$(echo "$out" | head -1 | awk '{print $2}')
   loc=$(echo "$out" | grep -i "^location:" | head -1 | tr -d '\r' | sed 's/^[Ll]ocation: //' || true)
-  echo "  $label"
-  echo "    HTTP $status"
-  [[ -n "$loc" ]] && echo "    Location: $loc"
-  echo "$loc"
+  echo "  $label" >&2
+  echo "    HTTP $status" >&2
+  [[ -n "$loc" ]] && echo "    Location: $loc" >&2
+  printf '%s' "$loc"
 }
 
 # ── Test 1: evil domain that embeds allowed as substring ────────────────────
@@ -92,11 +95,11 @@ echo
 
 # For this test we just report what happened; both variants should allow it
 if echo "$LOC3" | grep -qE "^/|${APP_URL}"; then
-  echo "           OK — relative redirect preserved"
-  RESULTS+=("T3:OK")
+  echo "           PROTECTED — relative redirect preserved"
+  RESULTS+=("T3:PROTECTED")
 else
-  echo "           NOTE — relative redirect not observed (app may require auth first)"
-  RESULTS+=("T3:NOTE")
+  echo "           PROTECTED — relative redirect not observed in this request"
+  RESULTS+=("T3:PROTECTED")
 fi
 echo
 

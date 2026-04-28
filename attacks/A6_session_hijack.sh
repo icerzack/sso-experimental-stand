@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 BASE_URL="${1:?Usage: $0 <base_url> <session_cookie>}"
 SESSION="${2:-}"
 
@@ -31,7 +34,7 @@ echo "     Target: $BASE_URL"
 echo
 
 # Step 1: check the Set-Cookie header to see what flags are present
-HEADERS=$(curl -si "${BASE_URL%/}/" | grep -i "set-cookie" || true)
+HEADERS=$(rcurl -si "${BASE_URL%/}/" | grep -i "set-cookie" || true)
 echo "  [1] Set-Cookie headers from /:"
 if [[ -n "$HEADERS" ]]; then
   echo "      $HEADERS"
@@ -57,7 +60,7 @@ echo
 
 # Step 2: replay the stolen session from a different User-Agent
 EVIL_UA="Mozilla/5.0 (compatible; evil-bot/1.0)"
-STATUS=$(curl -s -o /tmp/b3_response.txt -w "%{http_code}" \
+STATUS=$(rcurl -s -o /tmp/b3_response.txt -w "%{http_code}" \
   -A "$EVIL_UA" \
   --cookie "sess=$SESSION" \
   "$PROTECTED")

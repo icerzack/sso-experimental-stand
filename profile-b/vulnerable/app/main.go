@@ -169,7 +169,7 @@ func main() {
 	}
 
 	userID := getenv("WEBAUTHN_USER_ID", "demo-user")
-	allowedDomain := getenv("ALLOWED_REDIRECT_DOMAIN", "localhost")
+	allowedDomain := getenv("ALLOWED_REDIRECT_DOMAIN", "app-b-v.local")
 
 	mux := http.NewServeMux()
 	// VULNERABLE A12: no security headers middleware
@@ -180,6 +180,20 @@ func main() {
 			s, _ := sessionStore.Get(r, "sess")
 			s.Values["next"] = next
 			_ = s.Save(r, w)
+		}
+		render(w, pageTmpl, nil)
+	})
+
+	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		// VULNERABLE A9: /login?next= validates with strings.Contains → domain confusion.
+		if next := r.URL.Query().Get("next"); next != "" {
+			s, _ := sessionStore.Get(r, "sess")
+			s.Values["next"] = next
+			_ = s.Save(r, w)
+			if isAllowedRedirect(next, allowedDomain) {
+				http.Redirect(w, r, next, http.StatusFound)
+				return
+			}
 		}
 		render(w, pageTmpl, nil)
 	})
