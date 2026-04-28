@@ -59,7 +59,7 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "Str0ngCl!entS3cr3t_changeme",
       "redirectUris": [
-        "https://app-a-h.local/callback/profile-a"
+        "https://app-a-h.local/callback"
       ],
       "webOrigins": [
         "https://app-a-h.local"

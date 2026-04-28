@@ -18,6 +18,11 @@ module.exports = defineConfig({
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      args: [
+        '--unsafely-treat-insecure-origin-as-secure=https://app-a-h.local,https://app-b-h.local,https://app-c-h.local',
+      ],
+    },
   },
   projects: [
     {

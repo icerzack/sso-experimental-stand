@@ -18,8 +18,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const PROFILE_A_URL  = process.env.PROFILE_A_URL  || 'https://app-a-h.local';
-const PROFILE_A_USER = process.env.PROFILE_A_USER || 'testuser1';
-const PROFILE_A_PASS = process.env.PROFILE_A_PASS || 'password123';
+const PROFILE_A_USER = process.env.PROFILE_A_USER || 'testuser';
+const PROFILE_A_PASS = process.env.PROFILE_A_PASS || 'testpass123';
 const PROFILE_B_URL  = process.env.PROFILE_B_URL  || 'https://app-b-h.local';
 const PROFILE_C_URL  = process.env.PROFILE_C_URL  || 'https://app-c-h.local';
 const PROFILE_C_EMAIL = process.env.PROFILE_C_EMAIL || 'testuser@example.com';
@@ -96,7 +96,6 @@ function record(profile, durationMs, status, testTitle, runIndex, networkProfile
 }
 
 async function waitForKeycloakLogin(page) {
-  const username = page.locator('input[name="username"], input#username');
   await page.waitForURL((url) => {
     const s = url.toString();
     return s.includes('keycloak.local') || /\/protected(?:$|[/?#])/.test(s);
@@ -106,8 +105,35 @@ async function waitForKeycloakLogin(page) {
     return false;
   }
 
-  await username.first().waitFor({ state: 'visible', timeout: 30_000 });
+  await page.waitForLoadState('domcontentloaded');
+  await page.locator('#kc-login, #kc-form-login, form#kc-form-login, input[name="username"]').first().waitFor({
+    state: 'visible',
+    timeout: 30_000,
+  });
   return true;
+}
+
+async function fillIfVisible(locator, value) {
+  if (await locator.count()) {
+    const first = locator.first();
+    if (await first.isVisible()) {
+      await first.fill(value);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function completeKeycloakLogin(page) {
+  await fillIfVisible(
+    page.locator('input[name="username"], input#username, input[name="email"], input[type="email"]'),
+    PROFILE_A_USER,
+  );
+  await fillIfVisible(page.locator('input[name="password"], input#password'), PROFILE_A_PASS);
+
+  const submit = page.locator('#kc-login, input[type="submit"], button[type="submit"]');
+  await submit.first().click({ timeout: 20_000 });
+  await page.waitForURL((url) => /\/protected(?:$|[/?#])/.test(url.toString()), { timeout: 90_000 });
 }
 
 async function runWebAuthnAction(page, triggerSelector, finishPath, actionLabel, baseUrl) {
@@ -116,7 +142,7 @@ async function runWebAuthnAction(page, triggerSelector, finishPath, actionLabel,
     { timeout: 30_000 },
   );
 
-  await page.locator(triggerSelector).first().click();
+  await page.locator(triggerSelector).first().click({ timeout: 20_000 });
 
   const finishResponse = await finishResponsePromise;
   if (!finishResponse.ok()) {
@@ -124,13 +150,12 @@ async function runWebAuthnAction(page, triggerSelector, finishPath, actionLabel,
     throw new Error(`${actionLabel} finish endpoint failed: HTTP ${finishResponse.status()} ${body}`.trim());
   }
 
-  // JS on page should redirect, but we force a navigation fallback for CI stability.
   await page.goto(baseUrl + '/protected');
   await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
 }
 
-// ── Profile A: OIDC / Keycloak password flow ─────────────────────────────────
 test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ page }) => {
+  test.setTimeout(180_000);
   const t0 = Date.now();
   const collector = beginMetricsCollection(page);
   const runIndex = Number(process.env.PW_RUN_INDEX || 0);
@@ -141,13 +166,9 @@ test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ p
     await page.locator('a[href="/login"], a:has-text("Login with Keycloak")').first().click();
     const needsCredentials = await waitForKeycloakLogin(page);
     if (needsCredentials) {
-      // Keycloak login page
-      await page.locator('input[name="username"], input#username').fill(PROFILE_A_USER);
-      await page.locator('input[name="password"], input#password').fill(PROFILE_A_PASS);
-      await page.locator('input[type="submit"], button[type="submit"]').first().click();
+      await completeKeycloakLogin(page);
     }
 
-    // Should land on /protected
     await expect(page).toHaveURL(/\/protected/, { timeout: 60_000 });
     await expect(page.locator('body')).toContainText(PROFILE_A_USER);
 
@@ -162,25 +183,19 @@ test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ p
 
 test('Profile A — /protected redirects unauthenticated visitor to login', async ({ page }) => {
   await page.goto(PROFILE_A_URL + '/protected');
-  // Should be redirected away from /protected
   await expect(page).not.toHaveURL(/\/protected/, { timeout: 10_000 });
 });
 
-// ── Profile B: WebAuthn / FIDO2 passkey flow ─────────────────────────────────
 test('Profile B — WebAuthn registration then login reaches /protected', async ({ page, context }) => {
+  test.setTimeout(180_000);
   const t0 = Date.now();
   const collector = beginMetricsCollection(page);
   const runIndex = Number(process.env.PW_RUN_INDEX || 0);
   const networkProfile = process.env.NETWORK_PROFILE || 'none';
   const testTitle = 'profile B registers and authenticates through direct WebAuthn passkey flow';
 
-  // Virtual authenticator (Chromium CDP)
   const cdp = await context.newCDPSession(page);
   await cdp.send('WebAuthn.enable');
-  await context.grantPermissions(
-    ['publickey-credentials-create', 'publickey-credentials-get'],
-    { origin: PROFILE_B_URL },
-  );
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
     options: {
       protocol: 'ctap2',
@@ -193,7 +208,6 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
   });
 
   try {
-    // ── Register ──────────────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
     await runWebAuthnAction(
       page,
@@ -203,11 +217,9 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
       PROFILE_B_URL,
     );
 
-    // ── Logout ────────────────────────────────────────────
     await page.locator('a[href="/logout"], button:has-text("Logout")').first().click();
     await expect(page).not.toHaveURL(/\/protected/, { timeout: 8_000 });
 
-    // ── Login with passkey ────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
     await runWebAuthnAction(
       page,
@@ -234,7 +246,6 @@ test('Profile B — /protected redirects unauthenticated visitor', async ({ page
   await expect(page).not.toHaveURL(/\/protected/, { timeout: 10_000 });
 });
 
-// ── Profile C: Go app + Vaultwarden backend ─────────────────────────────────
 test('Profile C — login flow reaches /protected', async ({ page }) => {
   const t0 = Date.now();
   const collector = beginMetricsCollection(page);

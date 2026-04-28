@@ -50,7 +50,7 @@ func main() {
 		MaxAge:   900,
 		HttpOnly: true,                    // A6: JS cannot read the cookie
 		Secure:   true,                    // A6: only sent over HTTPS
-		SameSite: http.SameSiteStrictMode, // A6: blocks cross-site request forgery
+		SameSite: http.SameSiteLaxMode, // A6: Lax required for OIDC redirect callback; still blocks cross-site POST
 	}
 
 	httpClient := internalHTTPClient(kcHost, kcInternal)
