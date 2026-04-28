@@ -27,6 +27,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Add required hosts
         run: |
           cat <<'EOF' | sudo tee -a /etc/hosts
@@ -187,6 +192,34 @@ jobs:
           echo "Attack stage is non-blocking by design."
           exit 0
 
+      - name: Install Playwright dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E on hardened profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          make down || true
+          bash profile-c/hardened/nginx/gen-certs.sh
+          rm -f results/playwright/profile-metrics.json
+          status=0
+
+          make up-a-hard || status=1
+          PROFILE_A_URL=https://app-a-h.local npx playwright test tests/e2e/auth-profiles.spec.js --grep "Profile A" || status=1
+          make down-a || true
+
+          make up-b-hard || status=1
+          PROFILE_B_URL=https://app-b-h.local npx playwright test tests/e2e/auth-profiles.spec.js --grep "Profile B" || status=1
+          make down-b || true
+
+          make up-c-hard || status=1
+          PROFILE_C_URL=https://app-c-h.local npx playwright test tests/e2e/auth-profiles.spec.js --grep "Profile C" || status=1
+          make down-c || true
+
+          exit "$status"
+
       - name: Generate report site
         run: python3 scripts/generate_site.py
 
@@ -200,15 +233,26 @@ jobs:
           path: |
             results/raw/**
             results/processed/**
+            results/playwright/**
+
+      - name: Upload Playwright raw artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-raw-results
+          path: |
+            results/playwright/**
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
           path: site
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Always cleanup
         if: always()

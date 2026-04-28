@@ -25,36 +25,117 @@ const PROFILE_C_URL  = process.env.PROFILE_C_URL  || 'https://app-c-h.local';
 const PROFILE_C_EMAIL = process.env.PROFILE_C_EMAIL || 'testuser@example.com';
 const PROFILE_C_PASS  = process.env.PROFILE_C_PASS  || 'password123';
 
-const metricsPath = path.join(process.cwd(), 'results', 'playwright', 'metrics.json');
+const metricsPath = path.join(process.cwd(), 'results', 'playwright', 'profile-metrics.json');
 const metrics = [];
 
 test.afterAll(async () => {
   await fs.mkdir(path.dirname(metricsPath), { recursive: true });
-  await fs.writeFile(metricsPath, JSON.stringify(metrics, null, 2) + '\n');
+  let existing = [];
+  try {
+    existing = JSON.parse(await fs.readFile(metricsPath, 'utf8'));
+    if (!Array.isArray(existing)) {
+      existing = [];
+    }
+  } catch (_) {
+    existing = [];
+  }
+
+  const merged = [...existing];
+  for (const item of metrics) {
+    const idx = merged.findIndex((entry) => entry.profile === item.profile && entry.runIndex === item.runIndex);
+    if (idx >= 0) {
+      merged[idx] = item;
+    } else {
+      merged.push(item);
+    }
+  }
+
+  await fs.writeFile(metricsPath, JSON.stringify(merged, null, 2) + '\n');
 });
 
-function record(profile, durationMs, status, note = '') {
-  metrics.push({ profile, durationMs, status, note, ts: new Date().toISOString() });
+function beginMetricsCollection(page) {
+  let redirectCount = 0;
+  let stepCount = 0;
+
+  const onResponse = (response) => {
+    stepCount += 1;
+    const status = response.status();
+    if (status >= 300 && status < 400) {
+      redirectCount += 1;
+    }
+  };
+
+  page.on('response', onResponse);
+  return {
+    finish() {
+      page.off('response', onResponse);
+      return { redirectCount, stepCount };
+    },
+  };
+}
+
+function record(profile, durationMs, status, testTitle, runIndex, networkProfile, redirectCount, stepCount) {
+  const item = {
+    profile,
+    durationMs,
+    redirectCount,
+    stepCount,
+    status,
+    runIndex,
+    testTitle,
+    mode: process.env.HUMAN_MODE ? 'human' : 'machine-baseline',
+    networkProfile,
+  };
+
+  const existingIndex = metrics.findIndex((entry) => entry.profile === profile && entry.runIndex === runIndex);
+  if (existingIndex >= 0) {
+    metrics[existingIndex] = item;
+    return;
+  }
+  metrics.push(item);
+}
+
+async function waitForKeycloakLogin(page) {
+  const username = page.locator('input[name="username"], input#username');
+  await expect.poll(async () => {
+    if (/\/protected(?:$|[/?#])/.test(page.url())) {
+      return 'protected';
+    }
+    if (await username.count()) {
+      return 'login';
+    }
+    return 'pending';
+  }, { timeout: 60_000 }).not.toBe('pending');
+
+  return await username.count() > 0;
 }
 
 // ── Profile A: OIDC / Keycloak password flow ─────────────────────────────────
 test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ page }) => {
   const t0 = Date.now();
+  const collector = beginMetricsCollection(page);
+  const runIndex = Number(process.env.PW_RUN_INDEX || 0);
+  const networkProfile = process.env.NETWORK_PROFILE || 'none';
+  const testTitle = 'profile A authenticates through Keycloak password flow';
   try {
     await page.goto(PROFILE_A_URL + '/login');
-
-    // Keycloak login page
-    await page.locator('input[name="username"]').fill(PROFILE_A_USER);
-    await page.locator('input[name="password"]').fill(PROFILE_A_PASS);
-    await page.locator('input[type="submit"], button[type="submit"]').first().click();
+    const needsCredentials = await waitForKeycloakLogin(page);
+    if (needsCredentials) {
+      // Keycloak login page
+      await page.locator('input[name="username"], input#username').fill(PROFILE_A_USER);
+      await page.locator('input[name="password"], input#password').fill(PROFILE_A_PASS);
+      await page.locator('input[type="submit"], button[type="submit"]').first().click();
+    }
 
     // Should land on /protected
     await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
     await expect(page.locator('body')).toContainText(PROFILE_A_USER);
 
-    record('profile-a', Date.now() - t0, 'success');
+    const { redirectCount, stepCount } = collector.finish();
+    record('profile-a', Date.now() - t0, 'success', testTitle, runIndex, networkProfile, redirectCount, stepCount);
   } catch (err) {
-    record('profile-a', Date.now() - t0, 'error', err.message);
+    const { redirectCount, stepCount } = collector.finish();
+    record('profile-a', Date.now() - t0, 'failed', testTitle, runIndex, networkProfile, redirectCount, stepCount);
     throw err;
   }
 });
@@ -68,6 +149,10 @@ test('Profile A — /protected redirects unauthenticated visitor to login', asyn
 // ── Profile B: WebAuthn / FIDO2 passkey flow ─────────────────────────────────
 test('Profile B — WebAuthn registration then login reaches /protected', async ({ page, context }) => {
   const t0 = Date.now();
+  const collector = beginMetricsCollection(page);
+  const runIndex = Number(process.env.PW_RUN_INDEX || 0);
+  const networkProfile = process.env.NETWORK_PROFILE || 'none';
+  const testTitle = 'profile B registers and authenticates through direct WebAuthn passkey flow';
 
   // Virtual authenticator (Chromium CDP)
   const cdp = await context.newCDPSession(page);
@@ -98,9 +183,11 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
     await page.locator('#login-passkey, button:has-text("Login"), a:has-text("Login")').first().click();
     await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
 
-    record('profile-b', Date.now() - t0, 'success');
+    const { redirectCount, stepCount } = collector.finish();
+    record('profile-b', Date.now() - t0, 'success', testTitle, runIndex, networkProfile, redirectCount, stepCount);
   } catch (err) {
-    record('profile-b', Date.now() - t0, 'error', err.message);
+    const { redirectCount, stepCount } = collector.finish();
+    record('profile-b', Date.now() - t0, 'failed', testTitle, runIndex, networkProfile, redirectCount, stepCount);
     throw err;
   } finally {
     await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
@@ -116,6 +203,10 @@ test('Profile B — /protected redirects unauthenticated visitor', async ({ page
 // ── Profile C: Go app + Vaultwarden backend ─────────────────────────────────
 test('Profile C — login flow reaches /protected', async ({ page }) => {
   const t0 = Date.now();
+  const collector = beginMetricsCollection(page);
+  const runIndex = Number(process.env.PW_RUN_INDEX || 0);
+  const networkProfile = process.env.NETWORK_PROFILE || 'none';
+  const testTitle = 'profile C authenticates through local form for Vaultwarden-filled credentials';
   try {
     await page.goto(PROFILE_C_URL + '/');
     await page.locator('input[name="email"]').fill(PROFILE_C_EMAIL);
@@ -125,26 +216,19 @@ test('Profile C — login flow reaches /protected', async ({ page }) => {
     await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
     await expect(page.locator('body')).toContainText(PROFILE_C_EMAIL);
 
-    record('profile-c-login', Date.now() - t0, 'success');
+    const { redirectCount, stepCount } = collector.finish();
+    record('profile-c', Date.now() - t0, 'success', testTitle, runIndex, networkProfile, redirectCount, stepCount);
   } catch (err) {
-    record('profile-c-login', Date.now() - t0, 'error', err.message);
+    const { redirectCount, stepCount } = collector.finish();
+    record('profile-c', Date.now() - t0, 'failed', testTitle, runIndex, networkProfile, redirectCount, stepCount);
     throw err;
   }
 });
 
 test('Profile C — wrong password does not reach /protected', async ({ page }) => {
-  const t0 = Date.now();
-  try {
-    await page.goto(PROFILE_C_URL + '/');
-    await page.locator('input[name="email"]').fill(PROFILE_C_EMAIL);
-    await page.locator('input[name="password"]').fill(PROFILE_C_PASS + '-wrong');
-    await page.locator('button[type="submit"], button:has-text("Login")').first().click();
-
-    await expect(page).not.toHaveURL(/\/protected/, { timeout: 8_000 });
-
-    record('profile-c-reject', Date.now() - t0, 'success');
-  } catch (err) {
-    record('profile-c-reject', Date.now() - t0, 'error', err.message);
-    throw err;
-  }
+  await page.goto(PROFILE_C_URL + '/');
+  await page.locator('input[name="email"]').fill(PROFILE_C_EMAIL);
+  await page.locator('input[name="password"]').fill(PROFILE_C_PASS + '-wrong');
+  await page.locator('button[type="submit"], button:has-text("Login")').first().click();
+  await expect(page).not.toHaveURL(/\/protected/, { timeout: 8_000 });
 });
