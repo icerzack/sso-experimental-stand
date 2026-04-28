@@ -101,6 +101,9 @@ async function waitForKeycloakLogin(page) {
     if (/\/protected(?:$|[/?#])/.test(page.url())) {
       return 'protected';
     }
+    if (page.url().includes('keycloak.local')) {
+      return 'keycloak';
+    }
     if (await username.count()) {
       return 'login';
     }
@@ -118,7 +121,8 @@ test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ p
   const networkProfile = process.env.NETWORK_PROFILE || 'none';
   const testTitle = 'profile A authenticates through Keycloak password flow';
   try {
-    await page.goto(PROFILE_A_URL + '/login');
+    await page.goto(PROFILE_A_URL + '/');
+    await page.locator('a[href="/login"], a:has-text("Login with Keycloak")').first().click();
     const needsCredentials = await waitForKeycloakLogin(page);
     if (needsCredentials) {
       // Keycloak login page
@@ -171,7 +175,7 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
   try {
     // ── Register ──────────────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
-    await page.locator('#register-passkey, button:has-text("Register"), a:has-text("Register")').first().click();
+    await page.locator('#reg, #register-passkey, button:has-text("Register"), a:has-text("Register")').first().click();
     await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
 
     // ── Logout ────────────────────────────────────────────
@@ -180,7 +184,7 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
 
     // ── Login with passkey ────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
-    await page.locator('#login-passkey, button:has-text("Login"), a:has-text("Login")').first().click();
+    await page.locator('#login, #login-passkey, button:has-text("Login"), a:has-text("Login")').first().click();
     await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
 
     const { redirectCount, stepCount } = collector.finish();
