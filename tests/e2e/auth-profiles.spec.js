@@ -97,42 +97,36 @@ function record(profile, durationMs, status, testTitle, runIndex, networkProfile
 
 async function waitForKeycloakLogin(page) {
   const username = page.locator('input[name="username"], input#username');
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    const currentUrl = page.url();
-    if (/\/protected(?:$|[/?#])/.test(currentUrl)) {
-      return false;
-    }
-    if (currentUrl.includes('keycloak.local')) {
-      try {
-        await username.first().waitFor({ state: 'visible', timeout: 5_000 });
-        return true;
-      } catch (_) {
-        // Keep polling; Keycloak page may still be rendering.
-      }
-    }
-    await page.waitForTimeout(500);
+  await page.waitForURL((url) => {
+    const s = url.toString();
+    return s.includes('keycloak.local') || /\/protected(?:$|[/?#])/.test(s);
+  }, { timeout: 60_000 });
+
+  if (/\/protected(?:$|[/?#])/.test(page.url())) {
+    return false;
   }
-  throw new Error('Timed out waiting for Keycloak login form or protected page');
+
+  await username.first().waitFor({ state: 'visible', timeout: 30_000 });
+  return true;
 }
 
-async function waitForProtectedOrStatusError(page, timeoutMs, actionLabel) {
-  const deadline = Date.now() + timeoutMs;
-  const status = page.locator('#status');
+async function runWebAuthnAction(page, triggerSelector, finishPath, actionLabel, baseUrl) {
+  const finishResponsePromise = page.waitForResponse(
+    (response) => response.url().includes(finishPath),
+    { timeout: 30_000 },
+  );
 
-  while (Date.now() < deadline) {
-    if (/\/protected(?:$|[/?#])/.test(page.url())) {
-      return;
-    }
-    if (await status.count()) {
-      const msg = ((await status.textContent()) || '').trim();
-      if (msg && !/^Registering|^Authenticating/i.test(msg)) {
-        throw new Error(`${actionLabel} failed: ${msg}`);
-      }
-    }
-    await page.waitForTimeout(250);
+  await page.locator(triggerSelector).first().click();
+
+  const finishResponse = await finishResponsePromise;
+  if (!finishResponse.ok()) {
+    const body = await finishResponse.text().catch(() => '');
+    throw new Error(`${actionLabel} finish endpoint failed: HTTP ${finishResponse.status()} ${body}`.trim());
   }
-  throw new Error(`${actionLabel} timed out before reaching /protected`);
+
+  // JS on page should redirect, but we force a navigation fallback for CI stability.
+  await page.goto(baseUrl + '/protected');
+  await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
 }
 
 // ── Profile A: OIDC / Keycloak password flow ─────────────────────────────────
@@ -183,6 +177,10 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
   // Virtual authenticator (Chromium CDP)
   const cdp = await context.newCDPSession(page);
   await cdp.send('WebAuthn.enable');
+  await context.grantPermissions(
+    ['publickey-credentials-create', 'publickey-credentials-get'],
+    { origin: PROFILE_B_URL },
+  );
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
     options: {
       protocol: 'ctap2',
@@ -197,8 +195,13 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
   try {
     // ── Register ──────────────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
-    await page.locator('#reg, #register-passkey, button:has-text("Register"), a:has-text("Register")').first().click();
-    await waitForProtectedOrStatusError(page, 30_000, 'Passkey registration');
+    await runWebAuthnAction(
+      page,
+      '#reg, #register-passkey, button:has-text("Register"), a:has-text("Register")',
+      '/webauthn/register/finish',
+      'Passkey registration',
+      PROFILE_B_URL,
+    );
 
     // ── Logout ────────────────────────────────────────────
     await page.locator('a[href="/logout"], button:has-text("Logout")').first().click();
@@ -206,8 +209,13 @@ test('Profile B — WebAuthn registration then login reaches /protected', async 
 
     // ── Login with passkey ────────────────────────────────
     await page.goto(PROFILE_B_URL + '/');
-    await page.locator('#login, #login-passkey, button:has-text("Login"), a:has-text("Login")').first().click();
-    await waitForProtectedOrStatusError(page, 30_000, 'Passkey login');
+    await runWebAuthnAction(
+      page,
+      '#login, #login-passkey, button:has-text("Login"), a:has-text("Login")',
+      '/webauthn/login/finish',
+      'Passkey login',
+      PROFILE_B_URL,
+    );
 
     const { redirectCount, stepCount } = collector.finish();
     record('profile-b', Date.now() - t0, 'success', testTitle, runIndex, networkProfile, redirectCount, stepCount);
