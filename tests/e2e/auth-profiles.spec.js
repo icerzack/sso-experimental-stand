@@ -150,8 +150,7 @@ async function runWebAuthnAction(page, triggerSelector, finishPath, actionLabel,
     throw new Error(`${actionLabel} finish endpoint failed: HTTP ${finishResponse.status()} ${body}`.trim());
   }
 
-  await page.goto(baseUrl + '/protected');
-  await expect(page).toHaveURL(/\/protected/, { timeout: 15_000 });
+  await page.waitForURL(/\/protected/, { timeout: 15_000 });
 }
 
 test('Profile A — OIDC login via Keycloak redirects to /protected', async ({ page }) => {
