@@ -1,0 +1,13 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 1B — Keycloak + SAML + Password (Hardened)    │
+# │ Override: mounts hardened Keycloak realm config          │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    volumes:
+      - ./configs/keycloak/realm-export-saml-hardened.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  app:
+    environment:
+      AUTH_MODE: saml
+      HARDENED: "true"

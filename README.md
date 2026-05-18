@@ -1,365 +1,660 @@
 # SSO Experimental Stand
 
-Comparative testbed for three Single Sign-On architectural models,
-each available in a **vulnerable** and a **hardened** configuration.
+Экспериментальный стенд для исследования влияния архитектурной модели
+аутентификации на защищённость и операционные характеристики веб-приложения.
+
+## О проекте
+
+Проект представляет собой полностью контейнеризованный испытательный полигон,
+на котором развёрнуты четыре различные архитектуры Single Sign-On (SSO). Каждая
+архитектура — это связка **IdP (Identity Provider) + прокси-сервер +
+тестовое Go-приложение**, запускаемая одной командой `make up-e1?`.
+
+Стенд решает две исследовательские задачи:
+
+1. **Эксперимент 1** — как выбор *протокола*, *паттерна интеграции* и
+   *метода верификации* определяет классы уязвимостей и трудоёмкость защиты.
+   Для каждого профиля выполняется набор атак в двух конфигурациях
+   (vulnerable / hardened), чтобы измерить остаточный риск после hardening.
+
+2. **Эксперимент 2** — при фиксированных OIDC + Password, как конкретная
+   IdP-платформа влияет на производительность и операционную сложность.
+   Измеряются latency, throughput, потребление RAM/CPU и время старта.
+
+Оба эксперимента объединены контрольной точкой: **Keycloak + OIDC + Password**
+(профиль E1A = профиль E2A).
 
 ---
 
-## Architectural Profiles
+## Зафиксированные версии компонентов
 
+Все Docker-образы зафиксированы по тегам для воспроизводимости результатов.
 
-| Profile | Technology               | IdP                     | Auth Protocol               |
-| ------- | ------------------------ | ----------------------- | --------------------------- |
-| **A**   | Go app + Keycloak 25     | Keycloak                | OIDC / OAuth 2.0 + PKCE     |
-| **B**   | Go app (no external IdP) | Built-in WebAuthn store | WebAuthn / FIDO2 (passkeys) |
-| **C**   | Go app + Vaultwarden     | Vaultwarden backend     | Session-cookie auth gateway |
+### IdP-платформы
 
+| Компонент | Версия | Образ | Используется в |
+|-----------|--------|-------|----------------|
+| Keycloak | 24.0 | `quay.io/keycloak/keycloak:24.0` | E1A, E1B, E1D, E2A |
+| Authentik | 2024.8 | `ghcr.io/goauthentik/server:2024.8` | E2B |
+| Zitadel | stable | `ghcr.io/zitadel/zitadel:stable` | E2C |
+| Authelia | 4.38 | `authelia/authelia:4.38` | E1C, E2D |
 
-Each profile lives under `profile-{a,b,c}/{vulnerable,hardened}/` as a
-self-contained Docker Compose stack.
+### Инфраструктура
+
+| Компонент | Версия | Образ | Назначение |
+|-----------|--------|-------|------------|
+| Traefik | 3.3 | `traefik:v3.3` | Reverse proxy / TLS terminator |
+| PostgreSQL | 16-alpine | `postgres:16-alpine` | Хранилище данных IdP |
+| Redis | 7-alpine | `redis:7-alpine` | Сессии Authelia / Authentik |
+
+### Тестовое приложение
+
+| Компонент | Версия |
+|-----------|--------|
+| Go runtime | 1.24 (`golang:1.24-alpine`) |
+| Alpine runtime | 3.20 |
+| go-oidc | v3.18.0 |
+| gorilla/sessions | v1.4.0 |
+| golang.org/x/oauth2 | v0.36.0 |
+| go-jose | v4.1.4 |
+
+Приложение собирается из `app/main.go` (~1140 строк), поддерживает три режима
+работы через переменную окружения `AUTH_MODE`:
+- `oidc` — стандартный Authorization Code Flow с PKCE;
+- `saml` — SAML SP-initiated SSO;
+- `forward-auth` — доверие заголовку `X-Remote-User` от reverse proxy.
+
+### Мониторинг
+
+| Компонент | Версия | Порт |
+|-----------|--------|------|
+| Prometheus | v2.54.1 | 9090 |
+| Grafana | 10.4.1 | 3000 |
+| cAdvisor | latest | 8081 |
+| Node Exporter | latest | 9100 |
+
+### Нагрузочное тестирование
+
+| Компонент | Примечание |
+|-----------|------------|
+| k6 | Устанавливается на хост (`brew install k6` / см. https://k6.io) |
 
 ---
 
-## Requirements
+## Структура экспериментов
 
+### Эксперимент 1 — Влияние архитектурного профиля на защищённость
 
-| Tool           | Min version           |
-| -------------- | --------------------- |
-| Docker Engine  | 24                    |
-| Docker Compose | v2.24                 |
-| Python 3       | 3.10 (attack scripts) |
-| Node.js        | 18 (Playwright)       |
-| bash / curl    | any                   |
+**Исследовательский вопрос:** как выбор протокола, паттерна интеграции и метода
+верификации определяет классы угроз и трудоёмкость защиты?
 
+| Профиль | Конфигурация                       | Специфический attack surface                                                        |
+|---------|------------------------------------|-------------------------------------------------------------------------------------|
+| **E1A** | Keycloak + OIDC + Password         | JWT alg confusion, token replay, open redirect, PKCE downgrade, credential stuffing |
+| **E1B** | Keycloak + SAML + Password         | XML Signature Wrapping, assertion replay                                            |
+| **E1C** | Authelia + Forward Auth + Password | Header injection (X-Remote-User), session fixation, CSRF logout                     |
+| **E1D** | Keycloak + OIDC + WebAuthn         | RP ID mismatch; credential stuffing и RT-фишинг структурно устранены                |
+
+Профиль E1A — контрольная точка всего исследования.
+Профиль E1D отличается от E1A единственным параметром (метод верификации) — чистое измерение его эффекта.
+
+Каждый профиль доступен в дефолтной (**vulnerable**) и **hardened** конфигурации.
+Сравнение «до/после hardening» даёт delta hardening; остаточные после hardening уязвимости формируют метрику остаточного риска.
+
+Hardened-конфигурация реализуется через overlay-файлы (`profile-e1?-hard.yml`),
+которые подменяют realm export (Keycloak) или configuration.yml (Authelia)
+и выставляют переменную `HARDENED=true` в приложении. Пересборка не требуется —
+достаточно `make down-e1? && make up-e1?-hard`.
+
+### Эксперимент 2 — Сравнение IdP-платформ по операционным характеристикам
+
+**Исследовательский вопрос:** при фиксированных OIDC и пароле, насколько конкретная IdP-платформа влияет на производительность и операционную сложность?
+
+Э2 не исследует защищённость: при фиксированном OIDC + пароль attack surface одинаков для всех платформ.
+
+| Профиль | Конфигурация                | Класс платформы               |
+|---------|-----------------------------|-------------------------------|
+| **E2A** | Keycloak + OIDC + Password  | Heavyweight enterprise (JVM)  |
+| **E2B** | Authentik + OIDC + Password | Modern all-in-one (Python/Go) |
+| **E2C** | Zitadel + OIDC + Password   | Cloud-native minimal (Go)     |
+| **E2D** | Authelia + OIDC + Password  | Lightweight proxy-first (Go)  |
+
+Профиль E2A идентичен профилю E1A (единая контрольная точка).
+Hardened-варианты для Э2 не предусмотрены — эксперимент измеряет только производительность и operability.
+
+---
+
+## Архитектура стенда
+
+Каждый профиль разворачивает общий базовый стек (`docker-compose.yml`) плюс
+профиль-специфичный overlay из `profiles/profile-eXX.yml`.
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                        Хост-машина                            │
+│                                                               │
+│  :443/:80 ───► Traefik (v3.3)                                │
+│                  │                                            │
+│         ┌───────┴────────┐                                    │
+│         ▼                ▼                                    │
+│   app.sso-lab.local   idp.sso-lab.local                      │
+│         │                │                                    │
+│    ┌────▼────┐    ┌──────▼──────┐                            │
+│    │ App     │    │ IdP         │                             │
+│    │ (Go)    │◄──►│ (Keycloak / │                            │
+│    │ :8080   │OIDC│ Authelia)   │                            │
+│    │         │SAML│ :8080/9091  │                            │
+│    └─────────┘    └──────┬──────┘                            │
+│                          │                                    │
+│                    ┌─────▼─────┐                              │
+│                    │ PostgreSQL│                              │
+│                    │ :5432     │                              │
+│                    └───────────┘                              │
+│                                                               │
+│  Мониторинг:                                                  │
+│  Prometheus(:9090) ← cAdvisor, Node Exporter, Traefik        │
+│  Grafana(:3000)    ← data source: Prometheus                  │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### Как работает переключение профилей
+
+Базовый `docker-compose.yml` описывает общие сервисы (Traefik, Postgres, App,
+мониторинг). Профиль-override переопределяет образ IdP, монтирует нужный
+realm-export / config и задаёт переменные окружения приложения.
+Собрать и запустить — одна команда:
+
+```bash
+make up-e1a      # → docker compose -f docker-compose.yml -f profiles/profile-e1a.yml up -d --build
+```
+
+---
+
+## Требования
+
+| Инструмент     | Мин. версия            | Примечание                              |
+| -------------- | ---------------------- | --------------------------------------- |
+| Docker Engine  | 24+                    | Требуется для всех операций             |
+| Docker Compose | v2.24+                 | Плагин `docker compose`                 |
+| bash           | любой                  | Для скриптов атак                       |
+| curl           | любой                  | Зависимость скриптов атак               |
+| python3        | любой                  | Парсинг JSON в скриптах атак            |
+
+Опционально:
+- **k6** — нагрузочное тестирование (Эксперимент 2): `brew install k6`
+- **mkcert** — генерация доверенных локальных TLS-сертификатов: `brew install mkcert`
+- **jq** — удобный просмотр JSON-результатов нагрузочных тестов
+
+> Без mkcert стенд будет работать, но браузер покажет предупреждение о
+> самоподписанном сертификате. Скрипты атак используют `curl -sk`, поэтому
+> им доверенный сертификат не нужен.
 
 ---
 
 ## /etc/hosts
 
-All variants use named virtual hosts.
-We use a stable naming convention:
-
-- vulnerable: `app-<profile>-v.local`
-- hardened: `app-<profile>-h.local`
-
-Add the following entries once:
-
-```
-127.0.0.1  app-a-v.local
-127.0.0.1  app-a-h.local
-127.0.0.1  app-b-v.local
-127.0.0.1  app-b-h.local
-127.0.0.1  app-c-v.local
-127.0.0.1  app-c-h.local
-127.0.0.1  keycloak.local
-127.0.0.1  evil-clone.local
-```
-
-Verify with `make hosts-check`.
-
-You can manage entries automatically:
+Все профили используют виртуальные хосты `app.sso-lab.local` и `idp.sso-lab.local`.
+TLS-сертификат выписан на `*.sso-lab.local`.
 
 ```bash
-make hosts-add      # append missing required host records
-make hosts-remove   # remove project host records after testing
-```
+# Автоматическое добавление (требует sudo):
+make hosts-add
 
----
-
-## Quick Start
-
-```bash
-# Profile A — vulnerable
-make up-a-vuln
-# → App:      http://app-a-v.local:8081
-# → Keycloak: http://localhost:8080
-
-# Profile A — hardened
-make up-a-hard
-# → App:      https://app-a-h.local  (Caddy TLS)
-# → Keycloak: http://keycloak.local:8080
-
-# Profile B — vulnerable
-make up-b-vuln
-# → App: http://app-b-v.local:8082
-
-# Profile B — hardened
-make up-b-hard
-# → App: https://app-b-h.local  (Caddy TLS)
-
-# Profile C — vulnerable
-make up-c-vuln
-# → App: http://app-c-v.local:8083
-
-# Profile C — hardened
-make up-c-hard
-# → App: https://app-c-h.local  (Nginx + self-signed TLS)
-#   Generate certs first: bash profile-c/hardened/nginx/gen-certs.sh
-
-# Stop everything
-make down
-```
-
----
-
-## Default Credentials
-
-
-| Profile | Variant               | Username / E-mail      | Password      |
-| ------- | --------------------- | ---------------------- | ------------- |
-| A       | vulnerable & hardened | `testuser1`            | `password123` |
-| A       | Keycloak admin        | `admin`                | `admin`       |
-| B       | —                     | (passkey, no password) | —             |
-| C       | vulnerable            | `testuser@example.com` | `password123` |
-| C       | hardened              | `testuser@example.com` | `password123` |
-
-
----
-
-## Running Attack Scripts
-
-```bash
-# Demo attack pack against whichever Profile A variant is running
-make attack-a
-
-# Override target URL for the hardened variant
-APP_A=https://app-a-h.local KC_A=http://keycloak.local:8080 APP_A_ALLOWED=app-a-h.local make attack-a
-
-# Profile B demo attack pack
-make attack-b
-
-# Profile C demo attack pack
-make attack-c
-
-# Everything
-make attack-all
-```
-
-Individual scripts accept positional arguments; inspect the header
-comments in each file for usage and examples.
-
----
-
-## Attack Coverage Matrix
-
-**Legend:** VULN = expected to succeed on this variant ·
-PROT = expected to be blocked · N/A = attack vector does not apply ·
-SPOF = single point of failure observed
-
-
-| ID  | Script                      | Attack                                              | A-vuln | A-hard | B-vuln | B-hard | C-vuln | C-hard |
-| --- | --------------------------- | --------------------------------------------------- | ------ | ------ | ------ | ------ | ------ | ------ |
-| A1  | `A1_brute_force.py`         | Brute-force login                                   | VULN   | PROT   | VULN   | PROT   | VULN   | PROT   |
-| A2  | `A2_credential_stuffing.py` | Credential stuffing                                 | VULN   | PROT   | N/A    | N/A    | VULN   | PROT   |
-| A3  | `A3_phishing_check.py`      | WebAuthn origin-spoof phishing                      | N/A    | N/A    | PROT   | PROT   | N/A    | N/A    |
-| A4  | `A4_token_replay.sh`        | Session replay after logout (manual token step)     | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
-| A5  | `A5_jwt_algnone.sh`         | JWT `alg=none` (unsigned token, manual token step)  | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
-| A6  | `A6_session_hijack.sh`      | Cookie flag audit + UA replay (manual cookie step)  | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
-| A7  | `A7_redirect_uri.sh`        | Open redirect via `redirect_uri`                    | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
-| A8  | `A8_csrf_state.sh`          | CSRF — missing `state` + PKCE                       | VULN   | PROT   | N/A    | N/A    | N/A    | N/A    |
-| A9  | `A9_open_redirect.sh`       | Open redirect — `strings.Contains` domain confusion | VULN   | PROT   | VULN   | PROT   | N/A    | N/A    |
-| A10 | `A10_idp_spof.sh`           | IdP single point of failure                         | SPOF   | SPOF   | N/A    | N/A    | N/A    | N/A    |
-| A11 | `A11_db_leak.sh`            | Database / secret leak                              | MED    | LOW    | N/A    | N/A    | CRIT   | OK     |
-| A12 | `A12_security_headers.sh`   | Missing HTTP security headers                       | VULN   | PROT   | VULN   | PROT   | VULN   | PROT   |
-
-
-> **A10 note:** Both Profile A variants are SPOF because the application
-> cannot authenticate without Keycloak. Architectural mitigation would
-> require Keycloak HA or a fallback IdP — out of scope for this stand.
->
-> **A3 note:** WebAuthn's origin binding is a protocol-level guarantee;
-> both Profile B variants are expected PROTECTED. The test confirms the
-> guarantee holds regardless of configuration.
-
----
-
-## OWASP / RFC Reference Table
-
-
-| Attack                 | Standard                     | Section / Requirement                                   |
-| ---------------------- | ---------------------------- | ------------------------------------------------------- |
-| A1 Brute-force         | OWASP ASVS v4.2              | § 2.2.1 — Verify lockout after ≤ 10 failed attempts     |
-| A1 Brute-force         | OWASP Top 10 2021            | A07 Identification and Authentication Failures          |
-| A2 Credential stuffing | OWASP ASVS v4.2              | § 2.2.2 — Verify anti-automation controls               |
-| A3 WebAuthn phishing   | W3C WebAuthn Level 2         | § 7.2 — rpId binding and origin validation              |
-| A3 WebAuthn phishing   | FIDO2 Specification          | RP ID must match document origin                        |
-| A4 Token replay        | OWASP ASVS v4.2              | § 3.3.1 — Verify logout invalidates session server-side |
-| A4 Token replay        | MITRE ATT&CK                 | T1550.004 — Web Session Cookie                          |
-| A5 JWT alg=none        | OWASP ASVS v4.2              | § 3.5.3 — Verify JWTs validate algorithm                |
-| A5 JWT alg=none        | RFC 7519                     | § 10.7 — Unsecured JWTs                                 |
-| A5 JWT alg=none        | CVE-2015-9235                | `alg=none` confusion in `jsonwebtoken`                  |
-| A6 Cookie hijack       | OWASP ASVS v4.2              | § 3.4.1–3.4.5 — Cookie security attributes              |
-| A6 Cookie hijack       | MITRE ATT&CK                 | T1539 — Steal Web Session Cookie                        |
-| A7 Redirect URI        | RFC 6749                     | § 10.6 — Open Redirectors                               |
-| A7 Redirect URI        | OWASP ASVS v4.2              | § 3.5.2 — Verify redirect URIs are validated            |
-| A8 CSRF / state        | RFC 6749                     | § 10.12 — Cross-Site Request Forgery                    |
-| A8 CSRF / state        | OWASP ASVS v4.2              | § 3.5.3 — Verify `state` parameter integrity            |
-| A8 PKCE                | RFC 7636                     | § 4 — Proof Key for Code Exchange                       |
-| A9 Open redirect       | OWASP ASVS v4.2              | § 5.1.5 — Verify redirect targets against an allowlist  |
-| A9 Open redirect       | CWE-601                      | URL Redirection to Untrusted Site                       |
-| A10 IdP SPOF           | OWASP ASVS v4.2              | § 9.2.2 — Availability of authentication service        |
-| A10 IdP SPOF           | MITRE ATT&CK                 | T1499 — Endpoint Denial of Service                      |
-| A11 DB leak            | OWASP ASVS v4.2              | § 6.2 — Algorithms / § 9.1.1 Secrets at rest            |
-| A11 DB leak            | MITRE ATT&CK                 | T1552 — Unsecured Credentials                           |
-| A12 Headers            | OWASP ASVS v4.2              | § 14.4 — HTTP Security Headers                          |
-| A12 Headers            | OWASP Secure Headers Project | HSTS, CSP, X-Frame-Options, X-Content-Type-Options      |
-
-
----
-
-## E2E Tests (Playwright)
-
-```bash
-npm install
-
-# Required baseline for Playwright metrics:
-# 1) bring up ALL hardened profiles
-# 2) run Playwright against hardened domains
-bash profile-c/hardened/nginx/gen-certs.sh
-make up-a-hard
-make up-b-hard
-make up-c-hard
-
-# optional safety check
+# Проверка:
 make hosts-check
 
-# run full suite
-npx playwright test
-
-# run per profile (hardened)
-PROFILE_A_URL=https://app-a-h.local npx playwright test --grep "Profile A"
-PROFILE_B_URL=https://app-b-h.local npx playwright test --grep "Profile B"
-PROFILE_C_URL=https://app-c-h.local npx playwright test --grep "Profile C"
-
-# shutdown when done
-make down
+# Удаление после работы:
+make hosts-remove
 ```
 
-Reports are written to `results/playwright/`.
+Или вручную добавьте в `/etc/hosts`:
 
-### What Playwright validates
+```
+127.0.0.1  app.sso-lab.local idp.sso-lab.local
+```
 
-For each profile, tests verify usability and auth flow correctness:
-
-1. unauthenticated user cannot stay on `/protected`;
-2. valid login/auth flow reaches `/protected`;
-3. profile-specific negative check (for example wrong password on Profile C).
+> На macOS `.local` домены могут перехватываться mDNS (Bonjour).
+> Скрипты атак автоматически используют `--resolve host:port:127.0.0.1`,
+> поэтому проблем не возникает. При ручном тестировании в браузере
+> запись в `/etc/hosts` обязательна.
 
 ---
 
-## Directory Layout
+## Быстрый старт
+
+### Эксперимент 1 — Запуск профилей и атак
+
+```bash
+# ── Профиль E1A: Keycloak OIDC Password (контрольная точка) ──
+
+# Дефолтная (vulnerable) конфигурация:
+make up-e1a && sleep 30          # ждём health checks (Keycloak стартует ~30 сек)
+
+# hardened конфигурация:
+make up-e1a-hard && sleep 30
+
+# Запуск атак против текущего профиля:
+make attack-e1a
+
+# Остановка и удаление volumes:
+make down-e1a
+
+
+# ── Профиль E1B: Keycloak SAML Password ──
+
+make up-e1b          # vulnerable
+make up-e1b-hard     # hardened
+make attack-e1b
+make down-e1b
+
+
+# ── Профиль E1C: Authelia Forward Auth Password ──
+
+make up-e1c          # vulnerable
+make up-e1c-hard     # hardened
+make attack-e1c
+make down-e1c
+
+
+# ── Профиль E1D: Keycloak OIDC WebAuthn ──
+
+make up-e1d          # vulnerable
+make up-e1d-hard     # hardened
+make attack-e1d
+make down-e1d
+
+
+# ── Все атаки Эксперимента 1 разом ──
+
+make attack-all
+
+
+# ── Просмотр логов запущенного профиля ──
+
+make logs-e1a        # Ctrl+C для выхода
+```
+
+### Полная процедура Э1: vulnerable → атаки → hardened → повтор атак
+
+Это основная рабочая процедура Эксперимента 1. Она выполняется отдельно для
+каждого профиля (e1a, e1b, e1c, e1d):
+
+```bash
+# Шаг 1: Поднять дефолтную конфигурацию
+make up-e1a && sleep 30           # ждём health checks
+
+# Шаг 2: Запустить атаки, зафиксировать результаты
+make attack-e1a | tee results/raw/e1a_vulnerable_$(date +%Y%m%d).txt
+
+# Шаг 3: Переключиться на hardened (down + up-hard)
+make down-e1a
+make up-e1a-hard && sleep 30
+
+# Шаг 4: Повторить атаки
+make attack-e1a | tee results/raw/e1a_hardened_$(date +%Y%m%d).txt
+
+# Шаг 5: Зафиксировать дельту — какие атаки закрылись, какие остались
+make down-e1a
+
+# Шаг 6: Генерация сводного HTML-отчёта
+python3 scripts/generate_attack_report.py
+# → results/processed/index.html   (человекочитаемый отчёт)
+# → results/processed/attack-summary.json   (машинночитаемый)
+```
+
+Повторить для e1b, e1c, e1d.
+
+### Эксперимент 2 — Нагрузочное тестирование платформ
+
+Нагрузочное тестирование проводится ступенчато: 10 → 50 → 100 → 200 virtual users
+(см. `k6/run.sh`). Результаты сохраняются как JSON в `results/raw/`.
+
+```bash
+# ── Профиль E2A: Keycloak (контрольная точка = E1A) ──
+
+make up-e2a && sleep 60           # JVM нужен тёплый старт
+make load-test                    # k6 → results/raw/
+make down-e2a
+
+
+# ── Профиль E2B: Authentik ──
+
+make up-e2b && sleep 90           # несколько контейнеров + worker
+make load-test
+make down-e2b
+
+
+# ── Профиль E2C: Zitadel ──
+
+make up-e2c && sleep 45
+make load-test
+make down-e2c
+
+
+# ── Профиль E2D: Authelia OIDC beta ──
+
+make up-e2d && sleep 30
+make load-test
+make down-e2d
+```
+
+Результаты k6 сохраняются в `results/raw/`. Prometheus и Grafana доступны во время нагрузки:
+
+- Grafana: http://localhost:3000 (admin/admin)
+- Prometheus: http://localhost:9090
+- cAdvisor: http://localhost:8081
+
+---
+
+## Учётные данные по умолчанию
+
+| Профиль       | Роль              | Логин             | Пароль       |
+| ------------- | ----------------- | ------------------ | ------------ |
+| E1A, E1B, E1D | Тестовый пользователь | `testuser`    | `password123`|
+| E1A, E1B, E1D | Keycloak admin    | `admin`            | `admin`      |
+| E1C, E2D      | Тестовый пользователь | `testuser`    | `password123`|
+
+Эти учётные данные намеренно слабые — они являются частью модели угроз
+(используются в атаках credential stuffing, A9).
+
+---
+
+## Набор скриптов атак (attacks/)
+
+Все скрипты расположены в `attacks/` и принимают позиционные аргументы
+(целевые URL, realm). Запускаются через `make attack-e1?` или напрямую.
+
+Каждый скрипт выводит результат в формате `[Ax] НАЗВАНИЕ: VULNERABLE / PROTECTED / PARTIAL / INCONCLUSIVE`.
+
+| Скрипт                             | Атака                                        | Профили    |
+|-------------------------------------|----------------------------------------------|------------|
+| `A1_jwt_alg_none.sh`                | JWT `alg=none` — подмена алгоритма           | E1A, E1D   |
+| `A2_jwt_key_confusion.sh`           | JWT key confusion — подмена ключа подписи   | E1A, E1D   |
+| `A3_token_replay.sh`                | Token / session replay после logout          | E1A, E1D   |
+| `A4_open_redirect.sh`              | Open redirect через redirect_uri            | E1A, E1D   |
+| `A5_pkce_downgrade.sh`             | PKCE downgrade (S256 → plain → none)         | E1A, E1D   |
+| `A6_header_injection.sh`           | Header injection (X-Remote-User spoof)       | E1C        |
+| `A7_session_fixation.sh`           | Session fixation                            | E1C        |
+| `A8_csrf_logout.sh`                | CSRF logout                                 | E1C        |
+| `A9_credential_stuffing.sh`        | Credential stuffing по словарю               | E1A        |
+| `A10_webauthn_rp_mismatch.sh`      | RP ID mismatch / phishing page              | E1D        |
+| `A11_saml_assertion_replay.sh`     | SAML assertion replay                      | E1B        |
+| `A12_saml_signature_wrapping.sh`   | SAML Signature Wrapping (XSW)               | E1B        |
+
+Общий хелпер `common.sh` предоставляет:
+- `rcurl` — обёртка над `curl` с автоматическим `--resolve` для `.local` доменов;
+- `b64url_encode` / `b64url_decode` — кодирование/декодирование Base64URL без внешних зависимостей;
+- `get_id_token` — получение JWT через ROPC grant (Keycloak);
+- `get_session_cookie` — получение session cookie через browser-like OIDC login flow;
+
+---
+
+## Маппинг скриптов → make-таргеты
+
+```
+make attack-e1a  →  A1  A2  A3  A4  A5  A9        (OIDC + Password)
+make attack-e1b  →  A11 A12                        (SAML)
+make attack-e1c  →  A6  A7  A8                     (Forward Auth)
+make attack-e1d  →  A1  A2  A3  A4  A5  A10       (OIDC + WebAuthn)
+make attack-all  →  все вышеперечисленные
+```
+
+Скрипты можно запускать и вручную, передав целевые параметры:
+
+```bash
+bash attacks/A1_jwt_alg_none.sh https://app.sso-lab.local https://idp.sso-lab.local sso-lab
+```
+
+---
+
+## Hardening-конфигурации
+
+Для каждого профиля Э1 существует overlay-файл, который подменяет конфигурацию
+IdP на hardened и включает флаг `HARDENED=true` в приложении.
+
+| Профиль | Vulnerable конфиг                                   | Hardened конф                                           | Что меняется                                       |
+|---------|------------------------------------------------------|---------------------------------------------------------|----------------------------------------------------|
+| E1A     | `realm-export.json`                                  | `realm-export-hardened.json`                            | ES256 подпись, PKCE обязательный, rotating refresh |
+| E1B     | `realm-export-saml.json`                             | `realm-export-saml-hardened.json`                       | Строгая проверка XML-подписей                       |
+| E1C     | `config-forward-auth-vuln.yml`                       | `config-forward-auth-hardened.yml`                      | HMAC verification на заголовках                     |
+| E1D     | `realm-export-webauthn.json`                         | `realm-export-webauthn-hardened.json`                   | Строгий RP ID, require user verification            |
+
+Приложение при `HARDENED=true` включает дополнительные проверки:
+- Верификация подписи JWT по JWKS endpoint (вместо слепого доверия `alg`);
+- Проверка `token_use` claim;
+- Отклонение релевантных воспроизводимых токенов;
+- CSRF-защита logout.
+
+---
+
+## Генерация TLS-сертификатов
+
+```bash
+make gen-certs     # mkcert → configs/traefik/certs/
+```
+
+Если mkcert не установлен, Traefik будет использовать самоподписанные сертификаты
+(уже сгенерированные лежат в `certs/`). Все скрипты атак игнорируют ошибки TLS
+(`curl -sk`), так что отсутствие доверенного сертификата не влияет на результаты.
+
+Wildcard-сертификат выписан на `*.sso-lab.local`.
+
+---
+
+## Мониторинг (Prometheus + Grafana)
+
+Запускается автоматически как часть базового `docker-compose.yml`.
+Доступно при любом запущенном профиле:
+
+| Сервис      | URL                            | Логин       | Назначение                    |
+|-------------|--------------------------------|-------------|-------------------------------|
+| Grafana     | http://localhost:3000          | admin/admin | Дашборды метрик               |
+| Prometheus  | http://localhost:9090          | —           | TSDB + запросы PromQL         |
+| cAdvisor    | http://localhost:8081          | —           | Контейнерные метрики CPU/RAM  |
+
+Prometheus собирает метрики со следующих endpoints:
+- `traefik:8082` — HTTP-метрики reverse proxy;
+- `app:8080/metrics` — метрики приложения;
+- `cadvisor:8080` — контейнерные метрики;
+- `node-exporter:9100` — хостовые метрики;
+- `idp:8080/realms/sso-lab/metrics` — Keycloak metrics endpoint (только Keycloak-профили).
+
+Используется для замеров CPU/RAM при нагрузочном тестировании (Эксперимент 2).
+
+---
+
+## Структура каталогов
 
 ```
 sso-experimental-stand/
-├── profile-a/
-│   ├── vulnerable/
-│   │   ├── app/
-│   │   │   ├── main.go             ← Go OIDC app (insecure config)
-│   │   │   └── Dockerfile
-│   │   ├── keycloak/
-│   │   │   └── realm-export.json   ← bruteForceProtected=false, redirectUris=["*"]
-│   │   ├── docker-compose.yml
-│   │   └── .env
-│   └── hardened/
-│       ├── app/
-│       │   ├── main.go             ← Go OIDC app (PKCE, state, security headers)
-│       │   └── Dockerfile
-│       ├── keycloak/
-│       │   └── realm-export.json   ← bruteForceProtected=true, PKCE S256 required
-│       ├── caddy/
-│       │   └── Caddyfile           ← TLS termination + security headers
-│       ├── docker-compose.yml
-│       └── .env
-├── profile-b/
-│   ├── vulnerable/
-│   │   ├── app/
-│   │   │   ├── main.go             ← Go WebAuthn app (no rate limit, weak cookies)
-│   │   │   └── Dockerfile
-│   │   ├── docker-compose.yml
-│   │   └── .env
-│   └── hardened/
-│       ├── app/
-│       │   ├── main.go             ← Go WebAuthn app (rate limiter, secure cookies)
-│       │   └── Dockerfile
-│       ├── caddy/
-│       │   └── Caddyfile
-│       ├── docker-compose.yml
-│       └── .env
-├── profile-c/
-│   ├── vulnerable/
-│   │   ├── app/
-│   │   │   ├── main.go             ← Go login app (weak cookie, no rate limit)
-│   │   │   └── Dockerfile
-│   │   ├── docker-compose.yml      ← Go app + Vaultwarden backend
-│   │   └── .env
-│   └── hardened/
-│       ├── app/
-│       │   ├── main.go             ← Go login app (rate limit, secure cookie, headers)
-│       │   └── Dockerfile
-│       ├── nginx/
-│       │   ├── nginx.conf          ← TLS + security headers, proxy to Go app
-│       │   ├── gen-certs.sh        ← generate self-signed cert for app-c-h.local
-│       │   └── certs/              ← generated at runtime, not committed
-│       ├── docker-compose.yml      ← Go app + Vaultwarden backend + Nginx
-│       └── .env
-├── attacks/
-│   ├── A1_brute_force.py
-│   ├── A2_credential_stuffing.py
-│   ├── A3_phishing_check.py
-│   ├── A4_token_replay.sh
-│   ├── A5_jwt_algnone.sh
-│   ├── A6_session_hijack.sh
-│   ├── A7_redirect_uri.sh
-│   ├── A8_csrf_state.sh
-│   ├── A9_open_redirect.sh
-│   ├── A10_idp_spof.sh
-│   ├── A11_db_leak.sh
-│   └── A12_security_headers.sh
+├── app/                         ← Go-приложение (OIDC/SAML/ForwardAuth клиент)
+│   ├── main.go                  ← ~1140 строк, три режима AUTH_MODE
+│   ├── Dockerfile               ← Multi-stage build (Go 1.24 → Alpine 3.20)
+│   ├── go.mod                   ← go-oidc v3.18, gorilla/sessions v1.4, oauth2 v0.36
+│   └── go.sum
+├── profiles/                    ← Overlay-файлы docker-compose
+│   ├── profile-e1a.yml         ← Э1: Keycloak OIDC Password
+│   ├── profile-e1a-hard.yml       hardened override
+│   ├── profile-e1b.yml         ← Э1: Keycloak SAML Password
+│   ├── profile-e1b-hard.yml
+│   ├── profile-e1c.yml         ← Э1: Authelia Forward Auth
+│   ├── profile-e1c-hard.yml
+│   ├── profile-e1d.yml         ← Э1: Keycloak OIDC WebAuthn
+│   ├── profile-e1d-hard.yml
+│   ├── profile-e2a.yml         ← Э2: Keycloak OIDC (control = E1A)
+│   ├── profile-e2b.yml         ← Э2: Authentik OIDC
+│   ├── profile-e2c.yml         ← Э2: Zitadel OIDC
+│   └── profile-e2d.yml         ← Э2: Authelia OIDC
+├── configs/
+│   ├── keycloak/               ← Realm exports
+│   │   ├── realm-export.json             ← Default (vulnerable) OIDC
+│   │   ├── realm-export-hardened.json    ← Hardened OIDC
+│   │   ├── realm-export-saml.json        ← Default SAML
+│   │   ├── realm-export-saml-hardened.json
+│   │   ├── realm-export-webauthn.json    ← Default WebAuthn
+│   │   └── realm-export-webauthn-hardened.json
+│   ├── authelia/               ← Config YAML + users_database
+│   │   ├── config-forward-auth-vuln.yml
+│   │   ├── config-forward-auth-hardened.yml
+│   │   ├── config-oidc-provider.yml      ← Э2D (OIDC provider mode)
+│   │   └── users_database.yml
+│   ├── postgres/               ← init.sql (multi-schema setup)
+│   └── traefik/                ← Static + dynamic config, gen-certs.sh
+│       ├── traefik.yml                   ← Entrypoints, TLS, providers
+│       ├── dynamic/dynamic.yml           ← Cert store + middlewares
+│       └── gen-certs.sh
+├── attacks/                     ← Bash-скрипты атак
+│   ├── common.sh               ← Shared helpers (rcurl, b64url, get_id_token)
+│   ├── A1_jwt_alg_none.sh
+│   ├── A2_jwt_key_confusion.sh
+│   ├── A3_token_replay.sh
+│   ├── A4_open_redirect.sh
+│   ├── A5_pkce_downgrade.sh
+│   ├── A6_header_injection.sh
+│   ├── A7_session_fixation.sh
+│   ├── A8_csrf_logout.sh
+│   ├── A9_credential_stuffing.sh
+│   ├── A10_webauthn_rp_mismatch.sh
+│   ├── A11_saml_assertion_replay.sh
+│   └── A12_saml_signature_wrapping.sh
+├── k6/
+│   ├── login-flow.js            ← k6 scenario (Authorization Code + ROPC)
+│   └── run.sh                   ← Wrapper: 10→50→100→200 VU ступенчато
+├── monitoring/
+│   ├── prometheus.yml           ← Scrape configs
+│   └── grafana/
+│       ├── provisioning/
+│       └── dashboards/
+├── scripts/
+│   ├── generate_attack_report.py ← Парсер raw → summary JSON + HTML
+│   └── generate_site.py
 ├── wordlists/
-│   └── top100_passwords.txt
-├── tests/
-│   └── e2e/
-│       └── auth-profiles.spec.js
+│   └── top100_passwords.txt     ← Словарь для A9_credential_stuffing
 ├── results/
-│   ├── raw/
-│   ├── processed/
-│   └── playwright/
-├── go.mod
-├── go.sum
-├── Makefile
-├── playwright.config.js
-└── README.md
+│   ├── raw/                     ← Сырые логи атак (tee) и k6 JSON
+│   └── processed/               ← Итоговые JSON + HTML отчёты
+├── certs/                       ← Сгенерированные TLS-сертификаты (*.sso-lab.local)
+├── docker-compose.yml           ← Base stack (Traefik, Postgres, App, Monitoring)
+├── Makefile                     ← All make targets
+└── .env                         ← Environment defaults
 ```
 
 ---
 
-## Results Methodology
+## Переменные окружения (.env)
 
-1. Start a profile variant (`make up-a-vuln`) and wait for health checks to pass.
-2. Run the relevant attack scripts (`make attack-a`) and capture stdout to
-  `results/raw/<date>_<profile>_<variant>.txt`.
-3. Record VULNERABLE / PROTECTED / N/A per row in the coverage matrix above.
-4. Stop the variant (`make down-a`) and repeat for the hardened configuration.
-5. Run Playwright smoke tests to verify the authenticated flow is functional
-  for each variant under test.
-6. Compile findings into `results/processed/` for the thesis appendix.
+Основные параметры задаются в `.env` и могут быть перекрыты в профиль-overlay'ях:
+
+| Переменная              | По умолчанию              | Назначение                                   |
+|-------------------------|---------------------------|----------------------------------------------|
+| `AUTH_MODE`             | `oidc`                    | Режим приложения: oidc / saml / forward-auth |
+| `HARDENED`              | `false`                   | Включает защитные проверки в приложении       |
+| `APP_BASE_URL`          | `https://app.sso-lab.local` | Внешний URL приложения                     |
+| `IDP_ISSUER_HOST`       | `idp.sso-lab.local`       | Хост IdP (для формирования issuer URL)       |
+| `IDP_INTERNAL_HOST`     | `idp`                     | Внутренний hostname контейнера IdP           |
+| `IDP_PORT`              | `8080`                    | Внутренний порт IdP                         |
+| `OIDC_REALM`            | `sso-lab`                 | Keycloak realm (пустой строкой для других IdP)|
+| `CLIENT_ID`             | `sso-test-app`            | OAuth2/OIDC client ID                       |
+| `CLIENT_SECRET`         | `testpass123`             | OAuth2/OIDC client secret                   |
+| `SESSION_SECRET`        | `insecure-key`            | Ключ шифрования сессионных cookie            |
+| `REMOTE_USER_HEADER`    | `X-Remote-User`           | Заголовок forward-auth (только E1C)          |
+| `ALLOWED_REDIRECT_DOMAIN`| `app.sso-lab.local`      | Whitelist redirect URI (только E1C)          |
+| `POSTGRES_PASSWORD`     | `postgres`                | Пароль PostgreSQL                            |
+| `POSTGRES_USER`         | `postgres`                | Пользователь PostgreSQL                      |
+
+> Значения по умолчанию намеренно небезопасны — это часть модели угроз стенда.
+> Не используйте эти секреты в production.
 
 ---
 
-## GitHub CI/CD
+## Методология проведения экспериментов
 
-Workflow: `.github/workflows/security-stand.yml`
+### Эксперимент 1 (защищённость)
 
-Pipeline stages:
+Для каждого профиля (E1A, E1B, E1C, E1D):
 
-1. Build all images for A/B/C vulnerable+hardened stacks.
-2. Run all six variants sequentially (`a-vuln`, `a-hard`, `b-vuln`, `b-hard`, `c-vuln`, `c-hard`).
-3. Execute attack suites for each running variant.
-4. Aggregate raw logs into machine-readable summary (`results/processed/attack-summary.json`).
-5. Generate a one-page landing report (`results/processed/index.html`) with:
-   - scope and purpose of the stand;
-   - what checks were executed;
-   - summarized verdicts;
-   - best practices to reduce top attack classes;
-   - source links (OWASP, RFCs, WebAuthn, CWE, MITRE).
+1. Развернуть дефолтную конфигурацию (`make up-e1?`);
+2. Воспроизвести применимые сценарии из сводного набора — зафиксировать результаты;
+3. Применить hardening (`make up-e1?-hard`) — переключение на hardened realm config;
+4. Повторить атаки — зафиксировать, какие закрылись;
+5. Зафиксировать **остаточный риск**: классы угроз, не закрытые hardening-ом ни при каких настройках.
 
+**Итоговая метрика — остаточный риск после hardening**: для каждого профиля есть ли атаки,
+структурно неустранимые вне зависимости от конфигурации.
+
+### Эксперимент 2 (операционные характеристики)
+
+Для каждого профиля (E2A, E2B, E2C, E2D):
+
+1. Развернуть платформу (`make up-e2?`);
+2. Замерить время от старта до первого успешного логина;
+3. Провести ступенчатую нагрузку через k6 (`make load-test`);
+4. Собрать метрики через Prometheus/Grafana: latency P50/P95/P99, error rate, CPU, RAM;
+5. Зафиксировать операционную сложность: число шагов для регистрации нового клиента;
+6. Замерить startup/recovery time после рестарта.
+
+**Итоговая метрика — разброс между платформами по latency P95 и RAM при одинаковой нагрузке.**
+
+---
+
+## Полный список make-таргетов
+
+```
+make help              Показать справку
+
+# Эксперимент 1 — запуск/остановка профилей
+make up-e1a            E1A: Keycloak OIDC Password (vulnerable)
+make up-e1a-hard       E1A: Keycloak OIDC Password (hardened)
+make down-e1a
+make logs-e1a
+
+make up-e1b            E1B: Keycloak SAML Password (vulnerable)
+make up-e1b-hard       E1B: Keycloak SAML Password (hardened)
+make down-e1b
+make logs-e1b
+
+make up-e1c            E1C: Authelia Forward Auth (vulnerable)
+make up-e1c-hard       E1C: Authelia Forward Auth (hardened)
+make down-e1c
+make logs-e1c
+
+make up-e1d            E1D: Keycloak OIDC WebAuthn (vulnerable)
+make up-e1d-hard       E1D: Keycloak OIDC WebAuthn (hardened)
+make down-e1d
+make logs-e1d
+
+# Эксперимент 2 — запуск/остановка платформ
+make up-e2a            E2A: Keycloak OIDC (control point)
+make down-e2a
+make logs-e2a
+
+make up-e2b            E2B: Authentik OIDC
+make down-e2b
+make logs-e2b
+
+make up-e2c            E2C: Zitadel OIDC
+make down-e2c
+make logs-e2c
+
+make up-e2d            E2D: Authelia OIDC beta
+make down-e2d
+make logs-e2d
+
+# Атаки (Эксперимент 1)
+make attack-e1a        A1-A5,A9 против E1A (OIDC+Password)
+make attack-e1b        A11-A12 против E1B (SAML)
+make attack-e1c        A6-A8 против E1C (Forward Auth)
+make attack-e1d        A1-A5,A10 против E1D (OIDC+WebAuthn)
+make attack-all        Все атаки всех профилей Э1
+
+# Нагрузочное тестирование (Эксперимент 2)
+make load-test         k6 load test против текущего профиля
+
+# Утилиты
+make down              Остановить все контейнеры + volumes
+make gen-certs         Сгенерировать TLS сертификаты
+make hosts-check       Проверить /etc/hosts
+make hosts-add         Добавить записи в /etc/hosts
+make hosts-remove      Удалить записи из /etc/hosts
+make clean-results     Очистить результаты
+```

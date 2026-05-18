@@ -1,0 +1,13 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 1C — Authelia + Forward Auth (Hardened)       │
+# │ Override: mounts hardened Authelia config                 │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    volumes:
+      - ./configs/authelia/config-forward-auth-hardened.yml:/config/configuration.yml:ro
+
+  app:
+    environment:
+      AUTH_MODE: forward-auth
+      HARDENED: "true"

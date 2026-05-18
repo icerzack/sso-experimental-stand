@@ -1,0 +1,35 @@
+api:
+  dashboard: true
+  insecure: false
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+  traefik-metrics:
+    address: ":8082"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+ping:
+  entryPoint: "websecure"
+
+log:
+  level: INFO
+
+accessLog: {}
+
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    entryPoint: "traefik-metrics"

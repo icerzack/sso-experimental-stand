@@ -1,0 +1,14 @@
+users:
+  alice:
+    displayname: "Alice Smith"
+    password: "$argon2id$v=19$m=64,t=1,p=8$4PSHyrpJhNr9lm7iLq9pVg$ZD7L+hhMfqj/4nEy2fk1m/DtFmmN9rezdkPoh8A5dqU"
+    email: alice@idp.sso-lab.local
+    groups:
+      - users
+      - admins
+  bob:
+    displayname: "Bob Jones"
+    password: "$argon2id$v=19$m=64,t=1,p=8$4PSHyrpJhNr9lm7iLq9pVg$ZD7L+hhMfqj/4nEy2fk1m/DtFmmN9rezdkPoh8A5dqU"
+    email: bob@idp.sso-lab.local
+    groups:
+      - users

@@ -1,0 +1,71 @@
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/sso-lab.local.crt
+      keyFile: /etc/traefik/certs/sso-lab.local.key
+      stores:
+        - default
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/sso-lab.local.crt
+        keyFile: /etc/traefik/certs/sso-lab.local.key
+
+http:
+  routers:
+    idp:
+      rule: "Host(`idp.sso-lab.local`)"
+      entryPoints:
+        - websecure
+      tls: true
+      service: idp
+      middlewares:
+        - idp-https-rewrite
+    app:
+      rule: "Host(`app.sso-lab.local`)"
+      entryPoints:
+        - websecure
+      tls: true
+      service: app
+
+  services:
+    idp:
+      loadBalancer:
+        servers:
+          # Keycloak=8080, Zitadel=8080, Authentik=9000, Authelia=9091
+          # Keycloak=8080, Zitadel=8080, Authentik=9000, Authelia=9091
+          - url: "http://idp:8080"
+    app:
+      loadBalancer:
+        servers:
+          - url: "http://app:8080"
+
+  middlewares:
+    idp-https-rewrite:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+
+    security-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+    forward-auth-middleware:
+      forwardAuth:
+        # Note: This middleware is ONLY used by forward-auth profiles (e1c, e1c-hard).
+        # When running OIDC/SAML profiles, this middleware is ignored since the app
+        # handles its own authentication flow.
+        # rd parameter tells Authelia where to redirect after successful login.
+        # It should point to /api/auth-check so the app can create its own session.
+        address: "http://idp:9091/api/verify?rd=https://app.sso-lab.local/api/auth-check"
+        authResponseHeaders:
+          - "X-Remote-User"
+          - "X-Remote-Name"
+          - "X-Remote-Email"
+          - "X-Remote-Groups"

@@ -1,0 +1,14 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 1A — Keycloak + OIDC + Password (Hardened)    │
+# │ Override: mounts hardened Keycloak realm config          │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    volumes:
+      - ./configs/keycloak/realm-export-hardened.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  app:
+    environment:
+      AUTH_MODE: oidc
+      HARDENED: "true"
+      CLIENT_SECRET: "Str0ngCl!entS3cr3t_changeme"

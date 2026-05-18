@@ -1,0 +1,113 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 2B — Authentik + OIDC + Password             │
+# │ Variable: IdP platform (Authentik — modern all-in-one)  │
+# │ Fixed:    OIDC protocol, Password auth                   │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    image: ghcr.io/goauthentik/server:2024.8
+    container_name: sso-lab-idp
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-changeme_insecure_secret_key_32chars}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: postgres
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__SCHEMA: authentik
+      AUTHENTIK_HOST: https://idp.sso-lab.local
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.idp.rule=Host(`idp.sso-lab.local`)"
+      - "traefik.http.routers.idp.entrypoints=websecure"
+      - "traefik.http.routers.idp.tls=true"
+      - "traefik.http.services.idp.loadbalancer.server.port=9000"
+    networks:
+      - sso-lab
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/-/health/live/"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  idp-worker:
+    image: ghcr.io/goauthentik/server:2024.8
+    container_name: sso-lab-idp-worker
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-changeme_insecure_secret_key_32chars}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: postgres
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__SCHEMA: authentik
+      AUTHENTIK_HOST: https://idp.sso-lab.local
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    networks:
+      - sso-lab
+    depends_on:
+      - idp
+
+  redis:
+    image: redis:7-alpine
+    container_name: sso-lab-redis
+    networks:
+      - sso-lab
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Bootstrap job — configures Authentik after first startup:
+  #   • creates admin user + test user
+  #   • creates OAuth2 provider & application
+  #   • disables MFA stage in the default authentication flow
+  idp-bootstrap:
+    image: curlimages/curl:latest
+    container_name: sso-lab-idp-bootstrap
+    depends_on:
+      idp:
+        condition: service_healthy
+    networks:
+      - sso-lab
+    volumes:
+      - ./configs/authentik/bootstrap.sh:/bootstrap.sh:ro
+    entrypoint: ["/bin/sh", "/bootstrap.sh"]
+    profiles: ["bootstrap"]
+
+  app:
+    environment:
+      AUTH_MODE: oidc
+      HARDENED: "false"
+      APP_BASE_URL: https://app.sso-lab.local
+      IDP_ISSUER_HOST: idp.sso-lab.local
+      IDP_INTERNAL_HOST: idp
+      IDP_PORT: "9000"
+      IDP_EXTERNAL_URL: https://idp.sso-lab.local/application/o/sso-test-app/
+      OIDC_REALM: application
+      CLIENT_ID: sso-test-app
+      CLIENT_SECRET: testpass123
+      IDP_SCHEME: https
+      ALLOWED_REDIRECT_DOMAIN: app.sso-lab.local
+      SESSION_SECRET: insecure-key
+      PORT: "8080"
+    depends_on:
+      idp:
+        condition: service_healthy
+
+volumes:
+  authentik_media:
+  authentik_templates:

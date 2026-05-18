@@ -1,0 +1,231 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(traefik_entrypoint_requests_total{entrypoint=\"websecure\"}[5m])",
+          "legendFormat": "{{method}} {{code}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "Response Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{entrypoint=\"websecure\"}[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{entrypoint=\"websecure\"}[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{entrypoint=\"websecure\"}[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "Container CPU Usage (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{name=~\"sso-lab-idp.*\"}[5m]) * 100",
+          "legendFormat": "IdP ({{name}})",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{name=\"sso-lab-app\"}[5m]) * 100",
+          "legendFormat": "App",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{name=\"sso-lab-postgres\"}[5m]) * 100",
+          "legendFormat": "Postgres",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{name=~\"sso-lab-redis.*\"}[5m]) * 100",
+          "legendFormat": "Redis ({{name}})",
+          "refId": "D"
+        },
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{name=~\"sso-lab-traefik.*\"}[5m]) * 100",
+          "legendFormat": "Traefik",
+          "refId": "E"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent" }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "Container Memory (MB)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "container_memory_working_set_bytes{name=~\"sso-lab-idp.*\"} / 1024 / 1024",
+          "legendFormat": "IdP ({{name}})",
+          "refId": "A"
+        },
+        {
+          "expr": "container_memory_working_set_bytes{name=\"sso-lab-app\"} / 1024 / 1024",
+          "legendFormat": "App",
+          "refId": "B"
+        },
+        {
+          "expr": "container_memory_working_set_bytes{name=\"sso-lab-postgres\"} / 1024 / 1024",
+          "legendFormat": "Postgres",
+          "refId": "C"
+        },
+        {
+          "expr": "container_memory_working_set_bytes{name=~\"sso-lab-redis.*\"} / 1024 / 1024",
+          "legendFormat": "Redis ({{name}})",
+          "refId": "D"
+        },
+        {
+          "expr": "container_memory_working_set_bytes{name=~\"sso-lab-traefik.*\"} / 1024 / 1024",
+          "legendFormat": "Traefik",
+          "refId": "E"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "MB" }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "HTTP Status Codes Distribution",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (code) (increase(traefik_entrypoint_requests_total{entrypoint=\"websecure\"}[1h]))",
+          "legendFormat": "{{code}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "Error Rate (5xx %)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(traefik_entrypoint_requests_total{entrypoint=\"websecure\",code=~\"5..\"}[2m])) / sum(rate(traefik_entrypoint_requests_total{entrypoint=\"websecure\"}[2m])) * 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "Peak Memory per Container (current window)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "max_over_time(container_memory_working_set_bytes{name=~\"sso-lab-idp.*\"}[1h]) / 1024 / 1024",
+          "legendFormat": "IdP",
+          "refId": "A"
+        },
+        {
+          "expr": "max_over_time(container_memory_working_set_bytes{name=\"sso-lab-app\"}[1h]) / 1024 / 1024",
+          "legendFormat": "App",
+          "refId": "B"
+        },
+        {
+          "expr": "max_over_time(container_memory_working_set_bytes{name=\"sso-lab-postgres\"}[1h]) / 1024 / 1024",
+          "legendFormat": "Postgres",
+          "refId": "C"
+        },
+        {
+          "expr": "max_over_time(container_memory_working_set_bytes{name=~\"sso-lab-redis.*\"}[1h]) / 1024 / 1024",
+          "legendFormat": "Redis",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "MB" }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    },
+    {
+      "title": "Total Requests (counter)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(increase(traefik_entrypoint_requests_total{entrypoint=\"websecure\"}[1h]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "datasource": { "type": "prometheus", "uid": "" }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["sso-lab", "e2-benchmark"],
+  "templating": {
+    "list": [
+      {
+        "name": "window",
+        "type": "interval",
+        "query": "5m,10m,30m,1h,3h",
+        "current": { "text": "5m", "value": "5m" },
+        "auto": false
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "SSO Lab — E2 Benchmark Dashboard",
+  "uid": "sso-lab-e2",
+  "version": 2
+}

@@ -1,161 +1,310 @@
 SHELL := /bin/bash
 
-# ====================================================================
-# SSO Experimental Stand — Makefile
-# ====================================================================
-# Each profile exists in two configurations: vulnerable / hardened.
-# Profiles are isolated; never run two variants of the same profile
-# simultaneously (they share the same host ports).
-# ====================================================================
+COMPOSE := docker compose
+BASE    := docker-compose.yml
 
-COMPOSE    := docker compose
-ATTACK_DIR := attacks
+PROFILES := e1a e1b e1c e1d e2a e2b e2c e2d
 
 .PHONY: help \
-        up-a-vuln up-a-hard down-a logs-a \
-        up-b-vuln up-b-hard down-b logs-b \
-        up-c-vuln up-c-hard down-c logs-c \
-        down \
-        attack-all attack-a attack-b attack-c \
-        hosts-check hosts-add hosts-remove clean-results
+        up-e1a up-e1a-hard down-e1a logs-e1a \
+        up-e1b up-e1b-hard down-e1b logs-e1b \
+        up-e1c up-e1c-hard down-e1c logs-e1c \
+        up-e1d up-e1d-hard down-e1d logs-e1d \
+        up-e2a down-e2a logs-e2a \
+        up-e2b bootstrap-e2b down-e2b logs-e2b \
+        up-e2c down-e2c logs-e2c \
+        up-e2d down-e2d logs-e2d \
+        bench-e2a bench-e2b bench-e2c bench-e2d bench-e2-all \
+        export-metrics generate-report \
+        down gen-certs hosts-check hosts-add hosts-remove \
+        attack-all attack-e1a attack-e1b attack-e1c attack-e1d \
+        load-test clean-results
 
-# ── Help ─────────────────────────────────────────────────────────────
 help:
-	@echo "Profile A  (Keycloak + OIDC / Go app):"
-	@echo "  make up-a-vuln      start Profile A vulnerable  (http://app-a-v.local:8081, KC: :8080)"
-	@echo "  make up-a-hard      start Profile A hardened    (https://app-a-h.local)"
-	@echo "  make down-a         stop and remove Profile A containers + volumes"
-	@echo "  make logs-a         tail logs for whichever A variant is running"
+	@echo "SSO Experimental Stand — experiment-based profiles"
 	@echo ""
-	@echo "Profile B  (WebAuthn / FIDO2 / Go app):"
-	@echo "  make up-b-vuln      start Profile B vulnerable  (http://app-b-v.local:8082)"
-	@echo "  make up-b-hard      start Profile B hardened    (https://app-b-h.local)"
-	@echo "  make down-b         stop and remove Profile B"
-	@echo "  make logs-b         tail logs"
+	@echo "Experiment 1 — Architectural Profile (protocol + pattern + verification):"
+	@echo "  make up-e1a         E1A: Keycloak OIDC Password       [control point]"
+	@echo "  make up-e1a-hard    E1A: Keycloak OIDC Password       [hardened]"
+	@echo "  make up-e1b         E1B: Keycloak SAML Password"
+	@echo "  make up-e1b-hard    E1B: Keycloak SAML Password       [hardened]"
+	@echo "  make up-e1c         E1C: Authelia Forward Auth Password"
+	@echo "  make up-e1c-hard    E1C: Authelia Forward Auth         [hardened]"
+	@echo "  make up-e1d         E1D: Keycloak OIDC WebAuthn"
+	@echo "  make up-e1d-hard    E1D: Keycloak OIDC WebAuthn       [hardened]"
 	@echo ""
-	@echo "Profile C  (Go app + Vaultwarden backend):"
-	@echo "  make up-c-vuln      start Profile C vulnerable  (http://app-c-v.local:8083)"
-	@echo "  make up-c-hard      start Profile C hardened    (https://app-c-h.local)"
-	@echo "  make down-c         stop and remove Profile C"
-	@echo "  make logs-c         tail logs"
+	@echo "Experiment 2 — IdP Platform (operational benchmarks only, no attacks):"
+	@echo "  make up-e2a         E2A: Keycloak OIDC Password       [control point]"
+	@echo "  make up-e2b         E2B: Authentik OIDC"
+	@echo "  make bootstrap-e2b  E2B: Configure Authentik (run after up-e2b)"
+	@echo "  make up-e2c         E2C: Zitadel OIDC"
+	@echo "  make up-e2d         E2D: Authelia OIDC beta"
 	@echo ""
 	@echo "Attacks:"
-	@echo "  make attack-a       run A-series scripts against Profile A"
-	@echo "  make attack-b       run A-series scripts against Profile B"
-	@echo "  make attack-c       run A-series scripts against Profile C"
-	@echo "  make attack-all     run all attack scripts (all profiles)"
+	@echo "  make attack-all     run all attack scripts for Experiment 1"
+	@echo "  make attack-e1a      A1-A5,A9 against profile E1A (OIDC + Password)"
+	@echo "  make attack-e1b      A11-A12 against profile E1B (SAML)"
+	@echo "  make attack-e1c      A6-A8 against profile E1C (Forward Auth)"
+	@echo "  make attack-e1d      A1-A5,A10 against profile E1D (OIDC + WebAuthn)"
+	@echo ""
+	@echo "Load Testing (Experiment 2):"
+	@echo "  make load-test       run k6 load test against current profile"
+	@echo ""
+	@echo "E2 Full Benchmarks (automated: up → warmup → k6 → export → down):"
+	@echo "  make bench-e2a       E2A: Keycloak OIDC benchmark"
+	@echo "  make bench-e2b       E2B: Authentik OIDC benchmark"
+	@echo "  make bench-e2c       E2C: Zitadel OIDC benchmark"
+	@echo "  make bench-e2d       E2D: Authelia OIDC benchmark"
+	@echo "  make bench-e2-all    Run all four benchmarks sequentially"
+	@echo ""
+	@echo "Metrics Export & Reports:"
+	@echo "  make export-metrics  export Prometheus metrics to JSON (profile must be running)"
+	@echo "  make generate-report generate summary HTML report from raw results"
 	@echo ""
 	@echo "Utilities:"
-	@echo "  make down           stop every profile"
-	@echo "  make hosts-check    verify /etc/hosts entries"
-	@echo "  make hosts-add      add all required hosts entries"
-	@echo "  make hosts-remove   remove all required hosts entries"
-	@echo "  make clean-results  wipe results/ artifacts"
+	@echo "  make down            stop all containers + volumes"
+	@echo "  make gen-certs       generate TLS certs with mkcert"
+	@echo "  make hosts-check     verify /etc/hosts entries"
 
-# ── Profile A ────────────────────────────────────────────────────────
-up-a-vuln:
-	$(COMPOSE) -f profile-a/vulnerable/docker-compose.yml --project-name profile-a-vuln up -d --build
+# ── Experiment 1 — Architectural Profile ───────────────────────────
 
-up-a-hard:
-	$(COMPOSE) -f profile-a/hardened/docker-compose.yml --project-name profile-a-hard up -d --build
+up-e1a:
+	HARDENED=false $(COMPOSE) -f $(BASE) -f profiles/profile-e1a.yml --project-name sso-lab up -d --build
 
-down-a:
-	-$(COMPOSE) -f profile-a/vulnerable/docker-compose.yml --project-name profile-a-vuln down -v
-	-$(COMPOSE) -f profile-a/hardened/docker-compose.yml   --project-name profile-a-hard down -v
+up-e1a-hard:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1a.yml -f profiles/profile-e1a-hard.yml --project-name sso-lab up -d --build
 
-logs-a:
-	$(COMPOSE) -f profile-a/vulnerable/docker-compose.yml --project-name profile-a-vuln logs -f --tail=100 2>/dev/null || \
-	$(COMPOSE) -f profile-a/hardened/docker-compose.yml   --project-name profile-a-hard logs -f --tail=100
+down-e1a:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e1a.yml --project-name sso-lab down -v
 
-# ── Profile B ────────────────────────────────────────────────────────
-up-b-vuln:
-	$(COMPOSE) -f profile-b/vulnerable/docker-compose.yml --project-name profile-b-vuln up -d --build
+logs-e1a:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1a.yml --project-name sso-lab logs -f --tail=100
 
-up-b-hard:
-	$(COMPOSE) -f profile-b/hardened/docker-compose.yml --project-name profile-b-hard up -d --build
+up-e1b:
+	HARDENED=false $(COMPOSE) -f $(BASE) -f profiles/profile-e1b.yml --project-name sso-lab up -d --build
 
-down-b:
-	-$(COMPOSE) -f profile-b/vulnerable/docker-compose.yml --project-name profile-b-vuln down -v
-	-$(COMPOSE) -f profile-b/hardened/docker-compose.yml   --project-name profile-b-hard down -v
+up-e1b-hard:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1b.yml -f profiles/profile-e1b-hard.yml --project-name sso-lab up -d --build
 
-logs-b:
-	$(COMPOSE) -f profile-b/vulnerable/docker-compose.yml --project-name profile-b-vuln logs -f --tail=100 2>/dev/null || \
-	$(COMPOSE) -f profile-b/hardened/docker-compose.yml   --project-name profile-b-hard logs -f --tail=100
+down-e1b:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e1b.yml --project-name sso-lab down -v
 
-# ── Profile C ────────────────────────────────────────────────────────
-up-c-vuln:
-	$(COMPOSE) -f profile-c/vulnerable/docker-compose.yml --project-name profile-c-vuln up -d
+logs-e1b:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1b.yml --project-name sso-lab logs -f --tail=100
 
-up-c-hard:
-	$(COMPOSE) -f profile-c/hardened/docker-compose.yml --project-name profile-c-hard up -d
+up-e1c:
+	HARDENED=false $(COMPOSE) -f $(BASE) -f profiles/profile-e1c.yml --project-name sso-lab up -d --build
 
-down-c:
-	-$(COMPOSE) -f profile-c/vulnerable/docker-compose.yml --project-name profile-c-vuln down -v
-	-$(COMPOSE) -f profile-c/hardened/docker-compose.yml   --project-name profile-c-hard down -v
+up-e1c-hard:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1c.yml -f profiles/profile-e1c-hard.yml --project-name sso-lab up -d --build
 
-logs-c:
-	$(COMPOSE) -f profile-c/vulnerable/docker-compose.yml --project-name profile-c-vuln logs -f --tail=100 2>/dev/null || \
-	$(COMPOSE) -f profile-c/hardened/docker-compose.yml   --project-name profile-c-hard logs -f --tail=100
+down-e1c:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e1c.yml --project-name sso-lab down -v
 
-# ── Attacks ──────────────────────────────────────────────────────────
-# Profile A — target the vulnerable variant by default.
-# Override APP_A / KC_A env vars to target the hardened variant.
-APP_A ?= http://app-a-v.local:8081
-KC_A  ?= http://keycloak.local:8080
-APP_A_ALLOWED ?= app-a-v.local
-KC_REALM ?= profile-a-vulnerable
-KC_CLIENT_ID ?= sso-test-app
-KC_CLIENT_SECRET ?= testpass123
+logs-e1c:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1c.yml --project-name sso-lab logs -f --tail=100
 
-attack-a:
-	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(KC_A) /kc testuser1 $(KC_REALM) $(KC_CLIENT_ID) $(KC_CLIENT_SECRET) || true
-	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(KC_A) wordlists/top100_passwords.txt $(KC_REALM) $(KC_CLIENT_ID) $(KC_CLIENT_SECRET) || true
-	@bash    $(ATTACK_DIR)/A7_redirect_uri.sh        $(KC_A)            || true
-	@bash    $(ATTACK_DIR)/A8_csrf_state.sh          $(APP_A) $(KC_A)   || true
-	@bash    $(ATTACK_DIR)/A9_open_redirect.sh       $(APP_A) $(APP_A_ALLOWED) || true
-	@bash    $(ATTACK_DIR)/A4_token_replay.sh        $(APP_A) ""        || true
-	@bash    $(ATTACK_DIR)/A5_jwt_algnone.sh         $(APP_A) ""        || true
-	@bash    $(ATTACK_DIR)/A6_session_hijack.sh      $(APP_A) ""        || true
-	@bash    $(ATTACK_DIR)/A10_idp_spof.sh           $(APP_A) ""        || true
-	@bash    $(ATTACK_DIR)/A11_db_leak.sh            profile-a/vulnerable || true
-	@bash    $(ATTACK_DIR)/A12_security_headers.sh   $(APP_A)            || true
+up-e1d:
+	HARDENED=false $(COMPOSE) -f $(BASE) -f profiles/profile-e1d.yml --project-name sso-lab up -d --build
 
-# Profile B — target the vulnerable variant by default.
-APP_B ?= http://app-b-v.local:8082
+up-e1d-hard:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1d.yml -f profiles/profile-e1d-hard.yml --project-name sso-lab up -d --build
 
-attack-b:
-	@python3 $(ATTACK_DIR)/A3_phishing_check.py     $(APP_B)          || true
-	@bash    $(ATTACK_DIR)/A9_open_redirect.sh      $(APP_B) app-b-v.local || true
-	@bash    $(ATTACK_DIR)/A6_session_hijack.sh     $(APP_B) ""        || true
-	@bash    $(ATTACK_DIR)/A12_security_headers.sh  $(APP_B)           || true
+down-e1d:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e1d.yml --project-name sso-lab down -v
 
-# Profile C — target the vulnerable variant by default.
-APP_C ?= http://app-c-v.local:8083
+logs-e1d:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e1d.yml --project-name sso-lab logs -f --tail=100
 
-attack-c:
-	@python3 $(ATTACK_DIR)/A1_brute_force.py        $(APP_C)             || true
-	@python3 $(ATTACK_DIR)/A2_credential_stuffing.py $(APP_C)            || true
-	@bash    $(ATTACK_DIR)/A11_db_leak.sh            profile-c/vulnerable || true
-	@bash    $(ATTACK_DIR)/A12_security_headers.sh   $(APP_C)              || true
+# ── Experiment 2 — IdP Platform (operational benchmarks) ────────────
 
-attack-all: attack-a attack-b attack-c
+up-e2a:
+	HARDENED=false $(COMPOSE) -f $(BASE) -f profiles/profile-e2a.yml --project-name sso-lab up -d --build
 
-# ── Common ───────────────────────────────────────────────────────────
-down: down-a down-b down-c
+down-e2a:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e2a.yml --project-name sso-lab down -v
+
+logs-e2a:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2a.yml --project-name sso-lab logs -f --tail=100
+
+up-e2b:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2b.yml --project-name sso-lab up -d --build
+	@echo ""
+	@echo "Authentik is starting. Wait ~60s for health checks, then run:"
+	@echo "  make bootstrap-e2b"
+
+bootstrap-e2b: ## Configure Authentik (create users, OIDC provider, app)
+	@echo "Running Authentik bootstrap..."
+	docker exec sso-lab-idp bash -c '\
+		TOKEN=$$(curl -sf http://localhost:9000/api/v3/flows/executor/initial-setup/ 2>/dev/null | grep -o "ak-stage-prompt" || true); \
+		if [ -n "$$TOKEN" ]; then \
+			echo "Performing initial setup..."; \
+			curl -sf http://localhost:9000/api/v3/flows/executor/initial-setup/ \
+				-X POST -H "Content-Type: application/json" \
+				-d "{\"component\":\"ak-stage-prompt\",\"username\":\"admin\",\"name\":\"Admin\",\"email\":\"admin@sso-lab.local\",\"password\":\"admin\",\"password_repeat\":\"admin\"}" > /dev/null 2>&1 || true; \
+			sleep 5; \
+		fi'
+	@bash configs/authentik/bootstrap.sh
+	@echo "Removing MFA stage from default auth flow..."
+	docker exec sso-lab-idp ak shell -c "\
+from authentik.flows.models import FlowStageBinding; \
+from authentik.stages.authenticator_validate import AuthenticatorValidateStage; \
+flow = Flow.objects.get(slug='default-authentication-flow'); \
+[b.delete() for b in FlowStageBinding.objects.filter(target=flow, stage__in=AuthenticatorValidateStage.objects.all())]; \
+print('MFA stage removed')" 2>/dev/null || echo "NOTE: Could not auto-remove MFA stage — may need manual removal"
+
+down-e2b:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e2b.yml --project-name sso-lab down -v
+
+logs-e2b:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2b.yml --project-name sso-lab logs -f --tail=100
+
+up-e2c:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2c.yml --project-name sso-lab up -d --build
+
+down-e2c:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e2c.yml --project-name sso-lab down -v
+
+logs-e2c:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2c.yml --project-name sso-lab logs -f --tail=100
+
+up-e2d:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2d.yml --project-name sso-lab up -d --build
+
+down-e2d:
+	-$(COMPOSE) -f $(BASE) -f profiles/profile-e2d.yml --project-name sso-lab down -v
+
+logs-e2d:
+	$(COMPOSE) -f $(BASE) -f profiles/profile-e2d.yml --project-name sso-lab logs -f --tail=100
+
+# ── Attacks (Experiment 1 only) ─────────────────────────────────────
+#
+# Сводный набор сценариев (Таблица 3.3):
+#
+# | №   | Сценарий                           | E1A | E1B | E1C | E1D |
+# |-----|------------------------------------|-----|-----|-----|-----|
+# | C1  | JWT algorithm confusion            | ✓   |     |     | ✓   |
+# | C2  | Token replay                       | ✓   |     |     | ✓   |
+# | C3  | Open redirect через redirect_uri   | ✓   |     |     | ✓   |
+# | C4  | PKCE downgrade                     | ✓   |     |     | ✓   |
+# | C5  | Credential stuffing                 | ✓   |     |     |     |
+# | C6  | RT-фишинг через поддельный IdP      | ✓   |     |     |     |
+# | C7  | XML Signature Wrapping (XSW)       |     | ✓   |     |     |
+# | C8  | SAML assertion replay              |     | ✓   |     |     |
+# | C9  | Header injection (X-Remote-User)    |     |     | ✓   |     |
+# | C10 | Session fixation                    |     |     | ✓   |     |
+# | C11 | CSRF logout                         |     |     | ✓   |     |
+# | C12 | RP ID mismatch / phishing page      |     |     |     | ✓   |
+# | C13 | Challenge replay                    |     |     |     | ✓   |
+#
+# Script mapping: C1→A1+A2, C2→A3, C3→A4, C4→A5, C5→A9,
+#                 C6=TODO(RT-phishing), C7→A12, C8→A11, C9→A6, C10→A7, C11→A8,
+#                 C12→A10, C13=TODO(challenge-replay)
+
+APP_URL ?= https://app.sso-lab.local
+IDP_URL ?= https://idp.sso-lab.local
+REALM   ?= sso-lab
+
+# ── E1A attacks: Keycloak OIDC Password (control point) ──
+attack-e1a: ## Run attacks for Profile E1A (Keycloak OIDC Password)
+	@echo "═══ Running attacks against Profile E1A (Keycloak OIDC Password) ═══"
+	@bash attacks/A1_jwt_alg_none.sh       $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A2_jwt_key_confusion.sh   $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A3_token_replay.sh        $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A4_open_redirect.sh       $(IDP_URL) $(REALM) || true
+	@bash attacks/A5_pkce_downgrade.sh       $(IDP_URL) $(REALM) || true
+	@bash attacks/A9_credential_stuffing.sh  $(IDP_URL) $(REALM) || true
+
+# ── E1B attacks: Keycloak SAML Password ──
+attack-e1b: ## Run attacks for Profile E1B (Keycloak SAML)
+	@echo "═══ Running attacks against Profile E1B (Keycloak SAML) ═══"
+	@bash attacks/A11_saml_assertion_replay.sh   $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A12_saml_signature_wrapping.sh $(APP_URL) || true
+
+# ── E1C attacks: Authelia Forward Auth ──
+attack-e1c: ## Run attacks for Profile E1C (Authelia Forward Auth)
+	@echo "═══ Running attacks against Profile E1C (Authelia Forward Auth) ═══"
+	@bash attacks/A6_header_injection.sh   $(APP_URL) || true
+	@bash attacks/A7_session_fixation.sh    $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A8_csrf_logout.sh          $(APP_URL) $(IDP_URL) $(REALM) || true
+
+# ── E1D attacks: Keycloak OIDC WebAuthn ──
+attack-e1d: ## Run attacks for Profile E1D (Keycloak OIDC WebAuthn)
+	@echo "═══ Running attacks against Profile E1D (Keycloak OIDC WebAuthn) ═══"
+	@bash attacks/A1_jwt_alg_none.sh          $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A2_jwt_key_confusion.sh      $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A3_token_replay.sh           $(APP_URL) $(IDP_URL) $(REALM) || true
+	@bash attacks/A4_open_redirect.sh          $(IDP_URL) $(REALM) || true
+	@bash attacks/A5_pkce_downgrade.sh          $(IDP_URL) $(REALM) || true
+	@bash attacks/A10_webauthn_rp_mismatch.sh  $(APP_URL) || true
+
+# ── Run all attack experiment groups ──
+attack-all: attack-e1a attack-e1b attack-e1c attack-e1d
+
+# ── Load Testing (Experiment 2) ─────────────────────────────────────
+
+load-test:
+	@echo "Running k6 load test against $(APP_URL)..."
+	bash k6/run.sh $(APP_URL)
+
+# ── E2 Full Benchmarks (automated cycle) ───────────────────────────
+#
+# Each bench-e2? target runs the full cycle:
+#   make up → warmup → k6 load → export metrics → make down
+#
+# Customization via environment variables:
+#   WARMUP=120          extra warm-up seconds (default: 60)
+#   VUS_PEAK=100        peak virtual users (default: from k6 script)
+#   LOAD_MODE=ropc      ROPC-only / browser / mixed (default: mixed)
+#   K6_EXTRA="K=V ..." additional k6 env vars
+
+WARMUP ?= 60
+
+bench-e2a:
+	bash scripts/bench-e2.sh e2a $(WARMUP) $(K6_EXTRA)
+
+bench-e2b:
+	bash scripts/bench-e2.sh e2b $(WARMUP) $(K6_EXTRA)
+
+bench-e2c:
+	bash scripts/bench-e2.sh e2c $(WARMUP) $(K6_EXTRA)
+
+bench-e2d:
+	bash scripts/bench-e2.sh e2d $(WARMUP) $(K6_EXTRA)
+
+bench-e2-all: bench-e2a bench-e2b bench-e2c bench-e2d
+
+# ── Metrics Export & Reports ───────────────────────────────────────
+
+export-metrics: ## Export Prometheus metrics for currently running profile
+	@echo "Exporting Prometheus metrics for profile '${PROFILE:-unknown}'..."
+	bash scripts/export_metrics.sh ${PROFILE:-unknown}
+
+generate-report: ## Generate HTML report from raw results
+	python3 scripts/generate_attack_report.py
+	python3 scripts/generate_e2_report.py
+
+# ── Common ──────────────────────────────────────────────────────────
+
+down:
+	-$(COMPOSE) --project-name sso-lab down -v
+
+gen-certs:
+	bash configs/traefik/gen-certs.sh
 
 hosts-check:
 	@echo "Checking /etc/hosts for required entries..."
-	@for h in app-a-v.local app-a-h.local app-b-v.local app-b-h.local app-c-v.local app-c-h.local keycloak.local evil-clone.local; do \
+	@for h in app.sso-lab.local idp.sso-lab.local; do \
 		if grep -q "$$h" /etc/hosts 2>/dev/null; then \
 			echo "  OK      $$h"; \
 		else \
-			echo "  MISSING $$h  →  sudo sh -c 'echo \"127.0.0.1 $$h\" >> /etc/hosts'"; \
+			echo "  MISSING $$h → sudo sh -c 'echo \"127.0.0.1 $$h\" >> /etc/hosts'"; \
 		fi; \
 	done
 
 hosts-add:
 	@echo "Adding required hosts entries to /etc/hosts..."
-	@for h in app-a-v.local app-a-h.local app-b-v.local app-b-h.local app-c-v.local app-c-h.local keycloak.local evil-clone.local; do \
+	@for h in app.sso-lab.local idp.sso-lab.local; do \
 		if grep -qE "[[:space:]]$$h([[:space:]]|$$)" /etc/hosts 2>/dev/null; then \
 			echo "  SKIP    $$h (already present)"; \
 		else \
@@ -165,17 +314,12 @@ hosts-add:
 	done
 
 hosts-remove:
-	@echo "Removing required hosts entries from /etc/hosts..."
-	@for h in app-a-v.local app-a-h.local app-b-v.local app-b-h.local app-c-v.local app-c-h.local keycloak.local evil-clone.local; do \
+	@for h in app.sso-lab.local idp.sso-lab.local; do \
 		if grep -qE "[[:space:]]$$h([[:space:]]|$$)" /etc/hosts 2>/dev/null; then \
 			sudo sed -i.bak "/[[:space:]]$$h\\([[:space:]]\\|$$\\)/d" /etc/hosts; \
 			echo "  REMOVED $$h"; \
-		else \
-			echo "  SKIP    $$h (not found)"; \
 		fi; \
 	done
-	@echo "Done. Backup file: /etc/hosts.bak"
 
 clean-results:
-	rm -rf results/raw/* results/processed/* results/playwright/*
-	@echo "Result artifacts cleaned."
+	rm -rf results/raw/* results/processed/*

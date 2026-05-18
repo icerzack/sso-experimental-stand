@@ -1,0 +1,52 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 1C — Authelia + Forward Auth + Password      │
+# │ Variable: Pattern (Forward Auth)                        │
+# │ Fixed:    Password auth                                  │
+# │ Note:     Different IdP platform, but this is the       │
+# │           only way to implement Forward Auth — by        │
+# │           definition it requires a reverse-proxy IdP.    │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    image: authelia/authelia:4.38
+    container_name: sso-lab-idp
+    volumes:
+      - ./configs/authelia/config-forward-auth-vuln.yml:/config/configuration.yml:ro
+      - ./configs/authelia/users_database.yml:/config/users_database.yml:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.idp.rule=Host(`idp.sso-lab.local`)"
+      - "traefik.http.routers.idp.entrypoints=websecure"
+      - "traefik.http.routers.idp.tls=true"
+      - "traefik.http.services.idp.loadbalancer.server.port=9091"
+    networks:
+      - sso-lab
+    depends_on:
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    container_name: sso-lab-redis
+    networks:
+      - sso-lab
+
+  app:
+    environment:
+      AUTH_MODE: forward-auth
+      HARDENED: ${HARDENED:-false}
+      APP_BASE_URL: https://app.sso-lab.local
+      REMOTE_USER_HEADER: X-Remote-User
+      SESSION_SECRET: insecure-key
+      ALLOWED_REDIRECT_DOMAIN: app.sso-lab.local
+      IDP_SCHEME: https
+      PORT: "8080"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`app.sso-lab.local`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.routers.app.middlewares=forward-auth-middleware@file"
+      - "traefik.http.services.app.loadbalancer.server.port=8080"
+    depends_on:
+      - idp

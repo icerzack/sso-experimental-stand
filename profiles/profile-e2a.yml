@@ -1,0 +1,66 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 2A — Keycloak + OIDC + Password              │
+# │ Variable: IdP platform (Keycloak — heavyweight JVM)     │
+# │ Fixed:    OIDC protocol, Password auth                   │
+# │ Control point (identical to e1a)                          │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: sso-lab-idp
+    command:
+      - start-dev
+      - --import-realm
+      - --hostname-strict=false
+      - --features=preview
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak?currentSchema=keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KC_HOSTNAME: idp.sso-lab.local
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_RELATIVE_PATH: /
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_FRONTEND_URL: https://idp.sso-lab.local
+    volumes:
+      - ./configs/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.idp.rule=Host(`idp.sso-lab.local`)"
+      - "traefik.http.routers.idp.entrypoints=websecure"
+      - "traefik.http.routers.idp.tls=true"
+      - "traefik.http.services.idp.loadbalancer.server.port=8080"
+    networks:
+      - sso-lab
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET / HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && timeout 2 cat <&3 | grep -q 'HTTP/1.1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  app:
+    environment:
+      AUTH_MODE: oidc
+      HARDENED: ${HARDENED:-false}
+      APP_BASE_URL: https://app.sso-lab.local
+      IDP_ISSUER_HOST: idp.sso-lab.local
+      IDP_INTERNAL_HOST: idp
+      IDP_PORT: "8080"
+      IDP_EXTERNAL_URL: https://idp.sso-lab.local/realms/sso-lab
+      OIDC_REALM: sso-lab
+      CLIENT_ID: sso-test-app
+      CLIENT_SECRET: testpass123
+      IDP_SCHEME: https
+      ALLOWED_REDIRECT_DOMAIN: app.sso-lab.local
+      SESSION_SECRET: insecure-key
+      PORT: "8080"
+    depends_on:
+      idp:
+        condition: service_healthy

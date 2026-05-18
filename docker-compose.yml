@@ -1,0 +1,171 @@
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: sso-lab-traefik
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    volumes:
+      - ./configs/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./configs/traefik/dynamic:/etc/traefik/dynamic
+      - ./certs:/etc/traefik/certs:ro
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8082:8082"
+    networks:
+      - sso-lab
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: sso-lab-postgres
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./configs/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - sso-lab
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  idp:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: sso-lab-idp
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-postgres}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: idp.sso-lab.local
+      KC_HOSTNAME_PORT: "443"
+      KC_HOSTNAME_SCHEME: https
+      KC_PROXY: edge
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./configs/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    networks:
+      - sso-lab
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r'>&3;if [ $? -eq 0 ];then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: sso-lab-app
+    environment:
+      AUTH_MODE: ${AUTH_MODE:-oidc}
+      HARDENED: ${HARDENED:-false}
+      APP_BASE_URL: ${APP_BASE_URL:-https://app.sso-lab.local}
+      IDP_ISSUER_HOST: ${IDP_ISSUER_HOST:-idp.sso-lab.local}
+      IDP_INTERNAL_HOST: ${IDP_INTERNAL_HOST:-idp}
+      IDP_PORT: ${IDP_PORT:-8080}
+      IDP_EXTERNAL_URL: ${IDP_EXTERNAL_URL:-}
+      OIDC_REALM: ${OIDC_REALM:-sso-lab}
+      CLIENT_ID: ${CLIENT_ID:-sso-test-app}
+      CLIENT_SECRET: ${CLIENT_SECRET:-testpass123}
+      SESSION_SECRET: ${SESSION_SECRET:-insecure-key}
+      PORT: "8080"
+      REMOTE_USER_HEADER: ${REMOTE_USER_HEADER:-X-Remote-User}
+      ALLOWED_REDIRECT_DOMAIN: ${ALLOWED_REDIRECT_DOMAIN:-app.sso-lab.local}
+    networks:
+      - sso-lab
+    depends_on:
+      traefik:
+        condition: service_healthy
+      idp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: sso-lab-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - sso-lab
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: sso-lab-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - sso-lab
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: sso-lab-cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks:
+      - sso-lab
+    ports:
+      - "8081:8080"
+    privileged: true
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: sso-lab-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+    networks:
+      - sso-lab
+    ports:
+      - "9100:9100"
+
+networks:
+  sso-lab:
+    driver: bridge
+    name: sso-lab
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:

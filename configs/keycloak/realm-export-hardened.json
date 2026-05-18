@@ -1,0 +1,100 @@
+{
+  "realm": "sso-lab",
+  "enabled": true,
+  "displayName": "SSO Lab — Keycloak OIDC Password (Hardened)",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "sslRequired": "none",
+  "browserFlow": "browser",
+  "requiredCredentials": ["password"],
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 30,
+  "maxDeltaTimeSeconds": 43200,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 300,
+  "ssoSessionIdleTimeout": 900,
+  "ssoSessionMaxLifespan": 3600,
+  "offlineSessionIdleTimeout": 1800,
+  "offlineSessionMaxLifespanEnabled": true,
+  "offlineSessionMaxLifespan": 86400,
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["user"]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Standard test user role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sso-test-app",
+      "name": "SSO Test App (Hardened)",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "Str0ngCl!entS3cr3t_changeme",
+      "redirectUris": ["https://app.sso-lab.local/callback"],
+      "webOrigins": ["https://app.sso-lab.local"],
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "username",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "email",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "email",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ]
+}

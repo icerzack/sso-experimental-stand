@@ -1,0 +1,102 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 2C — Zitadel + OIDC + Password               │
+# │ Variable: IdP platform (Zitadel — cloud-native minimal)│
+# │ Fixed:    OIDC protocol, Password auth                   │
+# └─────────────────────────────────────────────────────────┘
+#
+# Post-deploy setup (run after `docker compose up`):
+#   ./scripts/setup-zitadel.sh
+#
+# This script creates the OIDC client app and test users via the
+# management API, since start-from-init only creates the default
+# admin user and the built-in Console client.
+#
+# Admin credentials after first login:
+#   Username: zitadel-admin@zitadel.idp.sso-lab.local
+#   Password: Password1!  (forced change on first login → Admin123!)
+#
+# Test users (created by setup script):
+#   alice@idp.sso-lab.local / Test1234!
+#   bob@idp.sso-lab.local   / Test1234!
+
+services:
+  idp:
+    image: ghcr.io/zitadel/zitadel:stable
+    container_name: sso-lab-idp
+    command: start-from-init --masterkeyFromEnv
+    # Zitadel's image has no shell (/bin/sh), so override the
+    # default healthcheck to use the built-in ready endpoint
+    healthcheck:
+      test: ["CMD", "/zitadel", "ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    environment:
+      ZITADEL_MASTERKEY: ${ZITADEL_MASTERKEY:-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6}
+      ZITADEL_EXTERNALSECURE: "true"
+      ZITADEL_EXTERNALPORT: "443"
+      ZITADEL_EXTERNALDOMAIN: idp.sso-lab.local
+      ZITADEL_TLS_ENABLED: "false"
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      # Default admin user — note: actual login becomes
+      # zitadel-admin@zitadel.idp.sso-lab.local (auto-generated domain)
+      ZITADEL_DEFAULTADMIN_USERNAME: admin@idp.sso-lab.local
+      ZITADEL_DEFAULTADMIN_PASSWORD: Password1!
+      ZITADEL_DEFAULTADMIN_ORGNAME: sso-lab
+      # SMTP — routes mail to MailHog for test verification codes
+      ZITADEL_SMTP_CONFIGURATION_FROM_ADDRESS: noreply@sso-lab.local
+      ZITADEL_SMTP_CONFIGURATION_FROM_NAME: "SSO Lab"
+      ZITADEL_SMTP_CONFIGURATION_SMTP_HOST: mailhog
+      ZITADEL_SMTP_CONFIGURATION_SMTP_PORT: "1025"
+      ZITADEL_SMTP_CONFIGURATION_TLS: "false"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.idp.rule=Host(`idp.sso-lab.local`)"
+      - "traefik.http.routers.idp.entrypoints=websecure"
+      - "traefik.http.routers.idp.tls=true"
+      - "traefik.http.services.idp.loadbalancer.server.port=8080"
+    networks:
+      - sso-lab
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    environment:
+      AUTH_MODE: oidc
+      OIDC_DISCOVERY_URL: https://idp.sso-lab.local/.well-known/openid-configuration
+      OIDC_ISSUER: https://idp.sso-lab.local
+      CLIENT_ID: "${ZITADEL_CLIENT_ID:-373398291624296457@sso_lab_apps}"
+      CLIENT_SECRET: "${ZITADEL_CLIENT_SECRET:-o7N5zIr40FUqM3oc8pXlSjvpTCuA0YXbc2vIjqBj48HdtKh0mLyUqXPcEJAIBzOZ}"
+      APP_BASE_URL: https://app.sso-lab.local
+      IDP_EXTERNAL_URL: https://idp.sso-lab.local
+      IDP_INTERNAL_HOST: idp
+      IDP_PORT: "8080"
+      IDP_SCHEME: https
+      ALLOWED_REDIRECT_DOMAIN: app.sso-lab.local
+      SESSION_SECRET: insecure-key
+      PORT: "8080"
+    depends_on:
+      - idp
+
+  # MailHog: captures email for verification codes in test environment
+  mailhog:
+    image: mailhog/mailhog
+    container_name: sso-lab-mailhog
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailhog.rule=Host(`mail.sso-lab.local`)"
+      - "traefik.http.routers.mailhog.entrypoints=websecure"
+      - "traefik.http.routers.mailhog.tls=true"
+      - "traefik.http.services.mailhog.loadbalancer.server.port=8025"
+    networks:
+      - sso-lab

@@ -1,0 +1,147 @@
+{
+  "realm": "sso-lab",
+  "enabled": true,
+  "displayName": "SSO Lab — Keycloak OIDC WebAuthn",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "sslRequired": "none",
+  "browserFlow": "webauthn-browser",
+  "requiredCredentials": ["password"],
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 3600,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespanEnabled": false,
+  "authenticationFlows": [
+    {
+      "alias": "webauthn-browser",
+      "description": "Browser flow with WebAuthn as required",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 10
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "requirement": "ALTERNATIVE",
+          "priority": 20
+        },
+        {
+          "authenticator": "auth-username-password-form",
+          "requirement": "REQUIRED",
+          "priority": 30
+        },
+        {
+          "authenticator": "webauthn-authenticator",
+          "requirement": "REQUIRED",
+          "priority": 40
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["user"]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Standard test user role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sso-test-app",
+      "name": "SSO Test App (WebAuthn)",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "testpass123",
+      "redirectUris": ["*"],
+      "webOrigins": ["*"],
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "pkce.code.challenge.method": ""
+      },
+      "protocolMappers": [
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "username",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "email",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "email",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+  "webAuthnPolicy": {
+    "rpEntityName": "sso-lab",
+    "signatureAlgorithms": ["ES256", "RS256"],
+    "rpId": "",
+    "attestationConveyancePreference": "none",
+    "authenticatorAttachment": "not specified",
+    "requireResidentKey": "not specified",
+    "userVerificationRequirement": "not specified",
+    "createTimeout": 0,
+    "avoidSameAuthenticatorRegister": false
+  },
+  "webAuthnPolicyPasswordless": {
+    "rpEntityName": "sso-lab",
+    "signatureAlgorithms": ["ES256", "RS256"],
+    "rpId": "",
+    "attestationConveyancePreference": "none",
+    "authenticatorAttachment": "not specified",
+    "requireResidentKey": "not specified",
+    "userVerificationRequirement": "not specified",
+    "createTimeout": 0,
+    "avoidSameAuthenticatorRegister": false
+  }
+}

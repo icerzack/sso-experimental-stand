@@ -1,0 +1,45 @@
+server:
+  host: 0.0.0.0
+  port: 9091
+
+log:
+  level: debug
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+    password:
+      algorithm: argon2id
+      iterations: 1
+      salt_length: 16
+      parallelism: 8
+      memory: 64
+
+access_control:
+  default_policy: deny
+  rules:
+    - domain: "app.sso-lab.local"
+      policy: one_factor
+
+session:
+  name: authelia_session
+  secret: insecure_session_secret_change_me
+  expiration: 3600
+  inactivity: 300
+  domain: sso-lab.local
+  redis:
+    host: redis
+    port: 6379
+
+regulation:
+  max_retries: 0
+  find_time: 2m
+  ban_time: 5m
+
+notifier:
+  filesystem:
+    filename: /config/notification.txt
+
+totp:
+  issuer: sso-lab.local
+  skew: 1

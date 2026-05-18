@@ -1,0 +1,104 @@
+server:
+  address: "tcp://0.0.0.0:9091/"
+
+log:
+  level: debug
+
+storage:
+  encryption_key: "insecure_encryption_key_change_me_to_64_chars_min_for_security_!!"
+  local:
+    path: /config/db.sqlite3
+
+identity_validation:
+  reset_password:
+    jwt_secret: "insecure_jwt_secret_change_me_to_64_chars_minimum_for_security"
+
+identity_providers:
+  oidc:
+    hmac_secret: insecure_hmac_secret_change_me_to_64_chars_minimum_for_security
+    issuer_private_key: |
+      -----BEGIN PRIVATE KEY-----
+      MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCgg1aQLiHTE8g9
+      I4oc9YkESrkYxc4OojfJUg5fE51x0XOOCuC4RR27r+CTsbEGzWqtoElrnyCsMjXi
+      Yw124jR6vUUBKEZnu+Uh+QW7ApKM1RldYcVcK2LoADhR4ya06olz12T2r2nwINRC
+      KVd999LTuCmqjZY7yGD/vTYN5di9YN8Qmg5woqOCOYKFCgbusG1/rZAQ/DB0H9+S
+      eoTd365YFLEz1ME3/6A2Xs1h5D0Wse272DEOpARorc9cjlRULLhz3hcgApi7z0ky
+      BOBsB6z0RCrTGo68LAzNnzMuHaCMKvb3R9/AZx1GZbgTDpQZY0zT0unQfs4Yhfft
+      Hvml5KSbAgMBAAECggEAYCpP0lHRMgTIEtkYBgGU9V1PR+g6a8oEYjknIw89ZNN3
+      x8H8oGnIRoo4okPzK4AmSZ+eXTwY9xGd9uQhTPh5OI/sp6TZiYyo2pG3PTNtWbLS
+      X4AUHgRgXV7EX0sYBYv+jcieVK0Dazo/8OOT54RyayYK0IPDXk3Oz2ks2Wa7U7mi
+      /BHYjDyHaHrQXhp5UOArZ2PB+iPZ2pOeb7AhL8XYoonrQZjPg1s8MQURm4AZL2Ds
+      fqOteWOAFhqXQvJoTxG9cUmyPDFPpiIs4cHhOqW9R1OOun2UWPCfXxkK+Or6GjNZ
+      goelhqlb5bdPRvTGxCYjcr9vQFjm6S0+aoEn29/OAQKBgQDOTJKk7HMpnxu+XH2P
+      0XUE0UHUaM0Vz0tb+Q/qQj0Qz76dA6LeQHTJOtAUd9iEMwOG6Rq1Dpks4bhYMMFp
+      pFPS+GlqGyVZk1KbvS7D9axjcuEsV+QqvZfyrnbHDAsx7yMdEnFS1+5B7mljcTwh
+      XtZqo6/+wcolRr/Xz7DTnnrTIwKBgQDHLuzH1WrPZYBKXAMHNa9vucwQK2FBdgHV
+      kqUfGCWV94YvPHphosPNGMI9MAh1MH+xhM/5aUtamBoZTLPOgtHuBEbAl7kTMOzN
+      JNTXAhlo7LnaS5ACNF/+D8Sgl89VwGldnG7N6QA/LveaiZfwlYl+7BnvBePDuGWv
+      S4rSLOscKQKBgEePPirhLg1Y+JmuoYtan5m9MHWKqOEQ19YebcvXkDEdrsPuN/ea
+      KiiHMxh2fe9Vdrq8bxww5ScxYO2Oc/i+HKmIq6A3rFwHA1esZuVoeZTBi6QDFM1S
+      mLuAkwj2f4ehqO9zr0WKS0YpefsZkz8ME5pID0tyUzlc8jzc+Txes8I7AoGANeOR
+      NkOcYT5B5lxciV/R9jVba2iBKJfHyUOinvYGfTt5t1/ycGX7+YpgSvOq5iHX+mxH
+      ZGBDfeA2929UGmQ0beQETGkALpwHBT2YxA8SVtvtMI1PCfmnmvIjLZvFAZtMJoKD
+      S/xlD7MiVFIzpGigyZERNyTtyW8jO7kBdvmmJnkCgYB4U5z1LV1LxRnx7v8x9jkO
+      bXY4n1JKSjxIkviD905vnROq8Y0orx1X0S4u5dXk7qdyfDI7aKkQQk8a7e4DXliF
+      +HSkKFx7uHlXwEcxihmihHfGBOLJs5fcEubdCBGoJ8PcjdIBl5x4IN0rbKhxTj42
+      7mp/dX7C0ZYY0pBI8wArRg==
+      -----END PRIVATE KEY-----
+
+    clients:
+      - client_id: sso-test-app
+        client_name: SSO Test App
+        client_secret: $2y$10$5/O8AsyMXGOQjXrAv.OilO7s8V2CBlu.0nGhTYNv63h.DalDgEYNG  # testpass123
+        public: false
+        authorization_policy: one_factor
+        token_endpoint_auth_method: client_secret_post  # k6 lacks btoa(); POST body auth
+        redirect_uris:
+          - https://app.sso-lab.local/callback
+          - https://app.sso-lab.local/login/callback
+          - https://app.sso-lab.local/auth/callback
+        grant_types:
+          - authorization_code
+        response_types:
+          - code
+        scopes:
+          - openid
+          - profile
+          - email
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+    password:
+      algorithm: argon2id
+      iterations: 1
+      salt_length: 16
+      parallelism: 8
+      memory: 64
+
+access_control:
+  default_policy: deny
+  rules:
+    - domain: "app.sso-lab.local"
+      policy: one_factor
+
+session:
+  secret: insecure_session_secret_change_me
+  expiration: 3600
+  inactivity: 300
+  cookies:
+    - name: authelia_session
+      domain: sso-lab.local
+      authelia_url: https://idp.sso-lab.local
+  redis:
+    host: redis
+    port: 6379
+
+regulation:
+  max_retries: 0
+  find_time: 2m
+  ban_time: 5m
+
+notifier:
+  filesystem:
+    filename: /config/notification.txt

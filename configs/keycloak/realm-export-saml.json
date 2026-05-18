@@ -1,0 +1,99 @@
+{
+  "realm": "sso-lab",
+  "enabled": true,
+  "displayName": "SSO Lab — Keycloak SAML Password",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "sslRequired": "none",
+  "browserFlow": "browser",
+  "requiredCredentials": ["password"],
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 3600,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespanEnabled": false,
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["user"]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Standard test user role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sso-test-app-saml",
+      "name": "SSO Test App (SAML Vulnerable)",
+      "enabled": true,
+      "protocol": "saml",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "redirectUris": ["https://app.sso-lab.local/*"],
+      "attributes": {
+        "saml.assertion.signature": "false",
+        "saml.encryption.required": "false",
+        "saml.client.signature": "false",
+        "saml.assertion.consumer.url.post": "https://app.sso-lab.local/saml/acs",
+        "saml.server.signature": "true",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.signing.certificate": "",
+        "saml_force_name_id_format": "false",
+        "saml_name_id_format": "username",
+        "saml.artifact.binding.identifier": "",
+        "saml.artifact.binding.check.period": "0",
+        "saml.artifact.binding.logout.url": "",
+        "saml.artifact.binding.post.binding": "false",
+        "saml.authnstatement": "true",
+        "saml.onetimeuse.condition": "false",
+        "saml.server.audit.notonorafter": "",
+        "saml.server.audit.allownotonafter": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "username-mapper",
+          "protocol": "saml",
+          "protocolMapper": "saml-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "attribute.nameformat": "Basic",
+            "user.attribute": "username",
+            "friendly.name": "",
+            "attribute.name": "username"
+          }
+        },
+        {
+          "name": "email-mapper",
+          "protocol": "saml",
+          "protocolMapper": "saml-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "attribute.nameformat": "Basic",
+            "user.attribute": "email",
+            "friendly.name": "",
+            "attribute.name": "email"
+          }
+        }
+      ]
+    }
+  ]
+}

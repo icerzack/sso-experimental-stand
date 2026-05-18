@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Compiled application binary
+app/sso-test-app
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -22,6 +25,10 @@ profile.cov
 
 # env file
 .env
+
+# Self-signed TLS certificates (regenerated per environment)
+certs/*.key
+certs/*.crt
 
 # Node / Playwright
 node_modules/

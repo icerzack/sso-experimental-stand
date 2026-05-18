@@ -1,0 +1,55 @@
+# ┌─────────────────────────────────────────────────────────┐
+# │ Experiment 2D — Authelia + OIDC + Password               │
+# │ Variable: IdP platform (Authelia — lightweight proxy)   │
+# │ Fixed:    OIDC protocol, Password auth                   │
+# └─────────────────────────────────────────────────────────┘
+services:
+  idp:
+    image: authelia/authelia:4.38
+    container_name: sso-lab-idp
+    command: []                     # Override Keycloak's start-dev command
+    environment: {}                 # Clear Keycloak env vars
+    volumes:
+      - ./configs/authelia/config-oidc-provider.yml:/config/configuration.yml:ro
+      - ./configs/authelia/users_database.yml:/config/users_database.yml:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.idp.rule=Host(`idp.sso-lab.local`)"
+      - "traefik.http.routers.idp.entrypoints=websecure"
+      - "traefik.http.routers.idp.tls=true"
+      - "traefik.http.services.idp.loadbalancer.server.port=9091"
+    networks:
+      - sso-lab
+    depends_on:
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9091/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: sso-lab-redis
+    networks:
+      - sso-lab
+
+  app:
+    environment:
+      AUTH_MODE: oidc
+      HARDENED: "false"
+      APP_BASE_URL: https://app.sso-lab.local
+      IDP_ISSUER_HOST: idp.sso-lab.local
+      IDP_INTERNAL_HOST: idp
+      IDP_PORT: "9091"
+      IDP_EXTERNAL_URL: https://idp.sso-lab.local
+      OIDC_REALM: ""
+      CLIENT_ID: sso-test-app
+      CLIENT_SECRET: testpass123
+      IDP_SCHEME: https
+      ALLOWED_REDIRECT_DOMAIN: app.sso-lab.local
+      SESSION_SECRET: insecure-key
+      PORT: "8080"
+    depends_on:
+      - idp
