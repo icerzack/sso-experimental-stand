@@ -658,3 +658,84 @@ make hosts-add         Добавить записи в /etc/hosts
 make hosts-remove      Удалить записи из /etc/hosts
 make clean-results     Очистить результаты
 ```
+
+---
+
+## Результаты исследования
+
+### Матрица выбора решения
+
+> Hardening обязателен для **всех** профилей. Состав мер определяется протоколом:
+> OIDC — 6 шагов конфигурации IdP; SAML — верификация XML-структуры;
+> Forward Auth — дополнительно сетевая изоляция на инфраструктурном уровне.
+
+#### Выбор протокола и паттерна интеграции (результаты Эксперимента 1)
+
+| Сценарий | Протокол / паттерн | Ключевое условие |
+|---|---|---|
+| Риск фишинга или credential stuffing | OIDC + **WebAuthn** | Структурно закрывает угрозу без доп. шагов hardening |
+| Стандартный сценарий, парольная аутентификация | OIDC + Password | 6 шагов hardening закрывают 4 из 6 уязвимостей; token replay — архитектурное ограничение stateless JWT |
+| B2B, legacy-интеграция с корпоративными системами | **SAML 2.0** | Только Full IdP; XSW и assertion replay закрываются hardening-ом |
+| Приложение нельзя изменить (legacy, внутренние сервисы) | **Forward Auth** | Обязательна сетевая изоляция контейнеров — атака A6 неустранима конфигурацией IdP |
+
+#### Выбор платформы (результаты Эксперимента 2)
+
+| Сценарий | Платформа | Обоснование |
+|---|---|---|
+| Ресурсно-ограниченная среда, только OIDC | **Authelia** | 48 МБ RAM idle, P95 105 мс при 100 VU, 5 шагов регистрации клиента |
+| Full IdP с полным стеком протоколов, умеренная нагрузка | **Zitadel** | 165 МБ RAM, линейная деградация без выбросов, OIDC + SAML + WebAuthn + web-UI |
+| Нужны оба паттерна — Full IdP и Forward Auth — в одном решении | **Authentik** | Единственная платформа из рассмотренных, поддерживающая оба паттерна одновременно |
+| Enterprise: кластеризация, LDAP, Kerberos, поддержка Red Hat | **Keycloak** | Наиболее зрелое решение; 520 МБ RAM — норма для enterprise с горизонтальным масштабированием |
+| ГИС, КИИ, требования ФСТЭК и Реестр Минцифры | **Blitz IdP / Trusted.net** | Единственные сертифицированные отечественные Full IdP; Blitz IdP — №4525 ФСТЭК от 10.03.2022, реестр Минцифры №842 |
+
+---
+
+### Hardening-чеклисты
+
+#### OIDC (профили E1A, E1D, E2A–E2D)
+
+| # | Мера | Что закрывает | Где настраивается |
+|---|---|---|---|
+| 1 | Алгоритм подписи токенов → **ES256** (вместо RS256) | A2: JWT key confusion RS256→HS256 | Keycloak realm / настройки клиента |
+| 2 | **PKCE S256** обязателен; plain и отсутствие `code_challenge` — запретить | A5: PKCE downgrade | Keycloak realm → Advanced settings |
+| 3 | **Redirect URI** — точный список без wildcard | A4: Open redirect | Keycloak client → Valid redirect URIs |
+| 4 | **TTL access token** → 60 секунд (вместо дефолтных 300) | A3: уменьшает окно token replay | Keycloak realm → Token settings |
+| 5 | **Rotating refresh token** — включить | A3: перехваченный refresh token инвалидируется после использования | Keycloak realm → Token settings |
+| 6 | **Brute Force Protection** — включить (блокировка после 5 попыток) | A9: замедляет credential stuffing | Keycloak realm → Security defences |
+| ⚠️ | **Rate limiting** на уровне reverse proxy (Traefik / Nginx / WAF) | A9: distributed credential stuffing с разных IP | Traefik middleware / внешний WAF |
+| ⚠️ | **Token Introspection** при каждом запросе | A3: полное закрытие token replay | Изменение архитектуры приложения |
+
+> ⚠️ — меры, выходящие за рамки конфигурации IdP; остаточный риск после hardening без них.
+
+Проверка в стенде: `make up-e1a-hard && make attack-e1a`
+
+---
+
+#### SAML 2.0 (профиль E1B)
+
+| # | Мера | Что закрывает | Где настраивается |
+|---|---|---|---|
+| 1 | **Строгая верификация XML-структуры** — структура документа должна соответствовать ожидаемой, перестановка элементов отклоняется | A12: XML Signature Wrapping (XSW) | Keycloak realm → SAML settings |
+| 2 | **Отслеживание использованных AssertionID** — Keycloak хранит кэш предъявленных ID в рамках TTL assertion | A11: SAML assertion replay | Keycloak realm → SAML settings |
+| 3 | Запретить слабые алгоритмы XML-подписи — разрешить только **SHA-256** и выше; SHA-1 — запретить явно | A12: XSW через слабые алгоритмы | Keycloak realm → SAML signature |
+| 4 | **Brute Force Protection** — те же параметры, что и для OIDC | A9: credential stuffing | Keycloak realm → Security defences |
+
+Проверка в стенде: `make up-e1b-hard && make attack-e1b`
+
+---
+
+#### Forward Auth (профиль E1C)
+
+| # | Мера | Что закрывает | Где настраивается |
+|---|---|---|---|
+| 1 | **HMAC-верификация заголовка** `X-Remote-User` — Authelia подписывает заголовок; приложение проверяет подпись при `HARDENED=true` | A6: header injection извне | Authelia config + приложение |
+| 2 | **Ротация session ID** после успешной аутентификации | A7: session fixation | Authelia config |
+| 3 | **CSRF-токен** на logout-endpoint | A8: CSRF logout | Приложение (`HARDENED=true`) |
+| 4 | **Rate limiting** на endpoint аутентификации — не более 5 попыток в минуту с одного IP | A9: credential stuffing | Authelia config → regulation |
+| ⚠️ | **Сетевая изоляция контейнеров** — запретить прямой доступ к приложению в обход Traefik (Docker network policy / Kubernetes NetworkPolicy) | A6: header injection изнутри Docker-сети | Инфраструктурный уровень |
+
+> ⚠️ — **структурный риск паттерна**: без сетевой изоляции атака A6 воспроизводима из любого контейнера той же Docker-сети даже при включённой HMAC-верификации. Это единственный неустранимый риск во всём исследовании.
+
+Проверка в стенде: `make up-e1c-hard && make attack-e1c`
+
+---
